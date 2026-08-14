@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heavenly Dao Chronicles — BTTH AI Universe Creator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loading-screen">
+    <div class="loader-content">
+      <div class="loader-flame"></div>
+      <h1>Heavenly Dao Chronicles</h1>
+      <p>Awakening the Dao...</p>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-icon">天</div>
+        <div class="logo-text">
+          <span class="title">Heavenly Dao</span>
+          <span class="subtitle">Chronicles</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="dashboard">
+          <span class="icon">☯</span> Dashboard
+        </button>
+        <button class="nav-item" data-view="world">
+          <span class="icon">🌍</span> World Creator
+        </button>
+        <button class="nav-item" data-view="character">
+          <span class="icon">👤</span> Character
+        </button>
+        <button class="nav-item" data-view="cultivation">
+          <span class="icon">⚡</span> Cultivation
+        </button>
+        <button class="nav-item" data-view="techniques">
+          <span class="icon">📜</span> Techniques
+        </button>
+        <button class="nav-item" data-view="flames">
+          <span class="icon">🔥</span> Heavenly Flames
+        </button>
+        <button class="nav-item" data-view="alchemy">
+          <span class="icon">⚗️</span> Alchemy
+        </button>
+        <button class="nav-item" data-view="beasts">
+          <span class="icon">🐉</span> Magical Beasts
+        </button>
+        <button class="nav-item" data-view="factions">
+          <span class="icon">🏯</span> Clans & Sects
+        </button>
+        <button class="nav-item" data-view="battle">
+          <span class="icon">⚔️</span> Battle Simulator
+        </button>
+        <button class="nav-item" data-view="story">
+          <span class="icon">📖</span> Story Generator
+        </button>
+        <button class="nav-item" data-view="community">
+          <span class="icon">🌌</span> Community
+        </button>
+        <button class="nav-item" data-view="pricing">
+          <span class="icon">💎</span> Cultivation Paths
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-status">
+          <div class="avatar">凡</div>
+          <div class="user-info">
+            <span class="name">Mortal Realm</span>
+            <span class="tier">Free Path</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <header class="topbar">
+        <div class="breadcrumb" id="breadcrumb">Dashboard</div>
+        <div class="top-actions">
+          <button class="btn-ghost" id="btn-save">💾 Save World</button>
+          <button class="btn-primary" id="btn-export">📤 Export</button>
+        </div>
+      </header>
+
+      <div class="content" id="content">
+        <!-- Views will be injected here -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
