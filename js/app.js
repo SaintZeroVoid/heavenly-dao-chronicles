@@ -1,15 +1,19 @@
+// MODULAR ARCHITECTURE: data.js | modules/ui.js | modules/combat.js | modules/graph.js | modules/lineage.js | factions-extra.js | app.js
 // ======================
 // HEAVENLY DAO CHRONICLES
 // Ultimate Application Logic — Expanded Edition
 // ======================
 
 let state = JSON.parse(localStorage.getItem('heavenlyDaoState')) || { ...DEFAULT_STATE };
-// Ensure new faction arrays exist
-['sects','clans','empires','academies','auctions','pillTowers','events','pills'].forEach(k => {
-  if (!state[k]) state[k] = [];
+['sects','clans','empires','academies','auctions','pillTowers','events','pills','techniques','flames','beasts','characters','storyChapters'].forEach(k => {
+  if (!Array.isArray(state[k])) state[k] = [];
 });
+if (!state.currentRegion) state.currentRegion = 'Outerland';
+
 
 function saveState() {
+  try { pushUndo(); } catch(e) {}
+  state.version = typeof SAVE_VERSION !== 'undefined' ? SAVE_VERSION : 3;
   localStorage.setItem('heavenlyDaoState', JSON.stringify(state));
   showToast('World state saved to Heavenly Dao Memory');
 }
@@ -79,6 +83,26 @@ function renderDashboard() {
             <button class="btn-ghost" onclick="showGeniusRanking()">🏆 Genius Ranking</button>
             <button class="btn-ghost" onclick="dailyOpportunity()">☯ Daily Opportunity</button>
             <button class="btn-ghost" onclick="exploreSecretRealm()">🏛️ Secret Realm</button>
+            <button class="btn-ghost" onclick="regionEncounter()">🌫️ Region Encounter</button>
+            <button class="btn-ghost" onclick="factionShop()">🏪 Faction Shop</button>
+            <button class="btn-ghost" onclick="storyChoice('fight')">⚔ Choice: Fight</button>
+            <button class="btn-ghost" onclick="storyChoice('scheme')">🕶 Choice: Scheme</button>
+            <button class="btn-ghost" onclick="storyChoice('wait')">🛡 Choice: Endure</button>
+            <button class="btn-ghost" onclick="runTutorial()">📘 Tutorial Step</button>
+            <button class="btn-ghost" onclick="guidedCampaignStep()">🎯 Guided Campaign</button>
+            <button class="btn-ghost" onclick="generateChapter()">📖 Quick Chapter</button>
+            <button class="btn-ghost" onclick="storyDebtPayoff()">📜 Debt Payoff Chapter</button>
+            <button class="btn-ghost" onclick="breakthroughPreview()">🔮 Breakthrough Preview</button>
+            <button class="btn-ghost" onclick="runShowcaseDemo()">🎬 Demo</button>
+            <button class="btn-ghost" onclick="switchView('simulation')">♾️ Lineage Sim</button>
+            <button class="btn-ghost" onclick="collectionSync()">📦 Sync Collections</button>
+            <button class="btn-ghost" onclick="advanceSeason()">🌙 Advance Season</button>
+            <button class="btn-ghost" onclick="advanceCalendar()">📅 Advance Month</button>
+            <button class="btn-ghost" onclick="travelAmbush()">🗡 Travel Ambush Check</button>
+            <button class="btn-ghost" onclick="replayLastBattles()">📼 Battle Replays</button>
+            <button class="btn-ghost" onclick="summonBeastAssist()">🐉 Beast Assist</button>
+            <button class="btn-ghost" onclick="teamSpar()">👥 Team Spar</button>
+            <button class="btn-ghost" onclick="escapeBattle()">🏃 Escape Battle</button>
             <button class="btn-ghost" onclick="assignTechniqueToChar()">📜 Learn Technique</button>
           </div>
         ` : `
@@ -99,7 +123,7 @@ function renderDashboard() {
           <p style="color:var(--text-muted);margin-bottom:16px;line-height:1.65;">${world.currentEra}</p>
           <div style="margin-bottom:14px;">
             <span style="color:var(--text-dim);font-size:0.75rem;">CURRENT REGION</span>
-            <p><strong>Central Land</strong> — Home of the Eight Ancient Clans</p>
+            <p><strong>${state.currentRegion || "Outerland"}</strong> — Travel via Continent Map</p>
           </div>
           <div style="margin-bottom:14px;">
             <span style="color:var(--text-dim);font-size:0.75rem;">THREAT LEVEL</span>
@@ -124,6 +148,15 @@ function renderDashboard() {
       </div>
     </div>
 
+    <div class="card" style="margin-bottom:24px;">
+      <div class="card-header">
+        <h3 class="card-title">Lineage Pulse</h3>
+        <button class="btn-ghost" onclick="switchView('simulation')">Open Sim</button>
+      </div>
+      <p style="color:var(--text-muted);font-size:0.9rem;">
+        ${state.lineage && state.lineage.founderId ? `Blood <strong style="color:var(--gold);">${state.lineage.bloodName||"?"}</strong> · Gen ${state.lineage.generations||1} · Year ${(state.sim&&state.sim.year)||1} · Living ${typeof getLineageCharacters==='function'?getLineageCharacters().length:'?'} · Gold ${(state.clanWealth&&state.clanWealth.gold)||0} · ${state.sim&&state.sim.running?'<span class="badge badge-green">RUNNING</span>':'<span class="badge badge-purple">PAUSED</span>'}${state.sim&&state.sim.lineageAlive===false?' · <span class="badge badge-red">EXTINCT</span>':''}` : 'No lineage founder yet. Open Lineage Sim after creating a character.'}
+      </p>
+    </div>
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Story Progress</h3>
@@ -241,6 +274,7 @@ function renderCharacter() {
             <p style="font-size:0.85rem;color:var(--text-muted);">${c.personality} · ${c.physique}</p>
             <p style="font-size:0.8rem;color:var(--text-dim);margin-top:8px;">Dream: ${c.dreams}</p>
             <p style="font-size:0.8rem;color:var(--text-dim);">Secret: ${c.secrets.substring(0, 50)}...</p>
+            ${c.technique ? `<p style="font-size:0.8rem;color:var(--gold);margin-top:4px;">Technique: ${c.technique}</p>` : ""}
             ${state.currentCharacterId === c.id ? '<div style="margin-top:10px;"><span class="badge badge-green">● Active</span></div>' : ''}
           </div>
         `).join('')}
@@ -262,6 +296,9 @@ function renderCharacter() {
             <div class="detail-item"><div class="dl">Weapon</div><div class="dv">${getActiveChar().weapon}</div></div>
           </div>
           <p style="margin-top:16px;color:var(--text-muted);"><strong style="color:var(--gold);">Secret:</strong> ${getActiveChar().secrets}</p>
+          ${getActiveChar().alive === false ? `<p style="color:var(--red-glow);margin-top:8px;">Deceased — ${getActiveChar().deathReason || "fallen"} (Y${getActiveChar().deathYear || "?"})</p>` : ""}
+          ${getActiveChar().spouse ? `<p style="color:var(--text-muted);margin-top:6px;"><strong style="color:var(--gold);">Spouse:</strong> ${getActiveChar().spouse}</p>` : ""}
+          ${getActiveChar().generation ? `<p style="color:var(--text-muted);margin-top:6px;"><strong style="color:var(--gold);">Generation:</strong> ${getActiveChar().generation}</p>` : ""}
           ${(getActiveChar().affiliations && getActiveChar().affiliations.length) ? `
             <p style="margin-top:10px;color:var(--text-muted);"><strong style="color:var(--gold);">Affiliations:</strong> ${getActiveChar().affiliations.map(a => a.name + " (" + a.type + ")").join(", ")}
             ${getActiveChar().factionRank ? ` · Rank: <span class="badge badge-purple">${getActiveChar().factionRank}</span>` : ""}</p>
@@ -336,8 +373,27 @@ function renderCultivation() {
         <button class="btn-ghost" style="width:100%;padding:16px;font-size:1rem;" onclick="attemptBreakthrough()">⚡ Attempt Breakthrough</button>
       </div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn-ghost" onclick="trainCharacter(true)">Deep Meditation (bigger gain, risk)</button>
+        <button class="btn-ghost" onclick="trainCharacter(true)">Deep Meditation</button>
+        <button class="btn-ghost" onclick="awakenBloodline()">🩸 Awaken Bloodline</button>
+        <button class="btn-ghost" onclick="evolvePhysique()">🧬 Evolve Physique</button>
+        <button class="btn-ghost" onclick="masterTechnique()">📜 Master Technique</button>
+        <button class="btn-ghost" onclick="recoverInjury()">💚 Recover Injury</button>
+        <button class="btn-ghost" onclick="bindFlameToBody()">🔥 Bind Flame</button>
+        <button class="btn-ghost" onclick="enterSeclusion()">🧘 Seclusion</button>
+        <button class="btn-ghost" onclick="gatherResources()">🌿 Gather Resources</button>
+        <button class="btn-ghost" onclick="fuseFlameRisk()">🔥 Flame Fusion</button>
+        <button class="btn-ghost" onclick="tribulationAttempt()">⛈️ Tribulation</button>
+        <button class="btn-ghost" onclick="ageSeclusion()">⏳ Long Seclusion</button>
+        <button class="btn-ghost" onclick="setLoadout('active')">⚔ Active Loadout</button>
+        <button class="btn-ghost" onclick="setLoadout('passive')">🛡 Passive Loadout</button>
+        <button class="btn-ghost" onclick="refineArtifact()">🔨 Refine Artifact</button>
+        <button class="btn-ghost" onclick="trainTrack('body')">💪 Body Track</button>
+        <button class="btn-ghost" onclick="trainTrack('qiTrack')">🌀 Qi Track</button>
+        <button class="btn-ghost" onclick="trainTrack('soul')">👻 Soul Track</button>
+        <button class="btn-ghost" onclick="cityHub()">🏙️ City Hub</button>
+        <button class="btn-ghost" onclick="worldBossPing()">👹 World Boss</button>
       </div>
+      <p style="margin-top:10px;color:var(--text-dim);font-size:0.85rem;">Bottleneck: ${bottleneckStatus(char)} ${char.boundFlame ? "· Bound Flame: "+char.boundFlame : ""} ${char.injured ? "· Injury: "+char.injured : ""}</p>
     </div>
 
     <div class="card">
@@ -502,6 +558,15 @@ function renderFactions() {
         <button class="btn-ghost" onclick="createAcademy()">📚 Create Academy</button>
         <button class="btn-ghost" onclick="createAuction()">💰 Create Auction House</button>
         <button class="btn-ghost" onclick="runAuction()">🔨 Attend Auction</button>
+        <button class="btn-ghost" onclick="academyExam()">📝 Academy Exam</button>
+        <button class="btn-ghost" onclick="pillCommission()">⚗️ Pill Commission</button>
+        <button class="btn-ghost" onclick="allianceContract()">🤝 Alliance Contract</button>
+        <button class="btn-ghost" onclick="wantedByAncients()">⚠️ Draw Ancient Attention</button>
+        <button class="btn-ghost" onclick="influenceMeter()">📈 Influence Meter</button>
+        <button class="btn-ghost" onclick="betrayalMission()">🗡️ Betrayal Mission</button>
+        <button class="btn-ghost" onclick="elderTrial()">👑 Elder Trial</button>
+        <button class="btn-ghost" onclick="breakTreaty()">💔 Break Treaty</button>
+        <button class="btn-ghost" onclick="shiftRegionControl()">🗺️ Shift Region Control</button>
         <button class="btn-ghost" onclick="createPillTower()">⚗️ Create Pill Tower</button>
         <button class="btn-ghost" onclick="triggerFactionConflict()">⚔️ Trigger Faction War</button>
         <button class="btn-ghost" onclick="joinFaction('sect')">Join Random Sect</button>
@@ -652,12 +717,21 @@ function renderFactions() {
 
 function renderBattle() {
   const chars = state.characters;
+  const f1 = chars[0];
+  const f2 = chars[1];
+  const loadoutHtml = (window.DaoCombat && f1) ? window.DaoCombat.renderLoadoutPanel(state, f1, f2 || null) : "";
   return `
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Battle Simulation AI</h3>
       </div>
-      <p style="color:var(--text-muted);margin-bottom:24px;">Simulate battles using realm, techniques, experience, bloodline, and strategy. The Heavenly Dao judges the outcome.</p>
+      <p style="color:var(--text-muted);margin-bottom:16px;">Pre-battle loadout, realm, techniques, experience, bloodline, and strategy. The Heavenly Dao judges the outcome.</p>
+      ${loadoutHtml}
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+        <button class="btn-ghost" onclick="setLoadout('active')">Set Active Tech</button>
+        <button class="btn-ghost" onclick="setLoadout('passive')">Set Passive Tech</button>
+        <button class="btn-ghost" onclick="summonBeastAssist()">Set Beast Assist</button>
+      </div>
       
       ${chars.length < 2 ? `
         <div class="empty-state">
@@ -692,9 +766,16 @@ function renderStory() {
     <div class="card" style="margin-bottom:24px;">
       <div class="card-header">
         <h3 class="card-title">AI Novel & Chapter Generator</h3>
-        <button class="btn-primary" onclick="generateChapter()">📖 Generate Next Chapter</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-primary" onclick="generateChapter()">📖 Generate Next Chapter</button>
+          <button class="btn-ghost" onclick="exportNovel()">📤 Export Novel</button>
+          <button class="btn-danger" onclick="clearAllStories()">🗑️ Clear Chapters</button>
+          <button class="btn-ghost" onclick="bookmarkChapter()">🔖 Bookmark</button>
+          <button class="btn-ghost" onclick="rewriteChapter()">♻️ Rewrite</button>
+          <button class="btn-ghost" onclick="canonLock()">📌 Canon Lock</button>
+        </div>
       </div>
-      <p style="color:var(--text-muted);">The Heavenly Dao remembers everything. Stories evolve with your world and characters.</p>
+      <p style="color:var(--text-muted);">The Heavenly Dao remembers everything. Stories evolve with your world, region, factions, and characters.</p>
     </div>
     <div id="story-output">
       ${state.storyChapters.length ? state.storyChapters.slice().reverse().map(ch => `
@@ -723,6 +804,24 @@ function renderCommunity() {
       </div>
       <div class="section-divider"></div>
       <p style="color:var(--text-dim);font-size:0.9rem;">In the full version: ratings, comments, followers, public world browser, and collaborative storytelling.</p>
+      <div class="section-divider"></div>
+      <button class="btn-danger" onclick="resetWorld()">⚠️ Reset Entire World</button>
+      <div class="section-divider"></div>
+      <h4 style="color:var(--gold);margin-bottom:10px;">Save Slots</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <button class="btn-ghost" onclick="saveToSlot(1)">Save Slot 1</button>
+        <button class="btn-ghost" onclick="loadFromSlot(1)">Load Slot 1</button>
+        <button class="btn-ghost" onclick="saveToSlot(2)">Save Slot 2</button>
+        <button class="btn-ghost" onclick="loadFromSlot(2)">Load Slot 2</button>
+        <button class="btn-ghost" onclick="saveToSlot(3)">Save Slot 3</button>
+        <button class="btn-ghost" onclick="loadFromSlot(3)">Load Slot 3</button>
+      </div>
+      <h4 style="color:var(--gold);margin-bottom:10px;">Story Tone</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="setStoryTone('heroic')">Heroic</button>
+        <button class="btn-ghost" onclick="setStoryTone('dark')">Dark</button>
+        <button class="btn-ghost" onclick="setStoryTone('scheming')">Scheming</button>
+      </div>
     </div>
   `;
 }
@@ -759,6 +858,7 @@ function renderPricing() {
 function createWorld() {
   state.world = generateWorld();
   state.events = state.events || [];
+  try { if (typeof pushNews === 'function') pushNews('World Born', state.world.name + ' enters the chronicle.'); } catch(e) {}
   saveState();
   switchView('world');
   showToast(`World "${state.world.name}" has been born under the Heavenly Dao`);
@@ -768,6 +868,7 @@ function createCharacter(forcedRealm = null) {
   const char = generateCharacter(forcedRealm);
   state.characters.push(char);
   if (!state.currentCharacterId) state.currentCharacterId = char.id;
+  try { if (typeof pushNews === 'function') pushNews('New Cultivator', char.name + ' appears as ' + char.star + ' ' + char.realm); } catch(e) {}
   saveState();
   switchView('character');
   showToast(`${char.name} has entered the world as ${char.star} ${char.realm}`);
@@ -830,18 +931,27 @@ function createSect() {
 function trainCharacter(deep = false) {
   const char = getActiveChar();
   if (!char) return;
-  const mult = deep ? 2.5 : 1;
+  let mult = deep ? 2.5 : 1;
+  // Faction rank bonus
+  const rankBonus = { "Outer Disciple": 1.05, "Inner Disciple": 1.12, "Core Disciple": 1.2, "Elder Candidate": 1.28, "Elder": 1.35 };
+  if (char.factionRank && rankBonus[char.factionRank]) mult *= rankBonus[char.factionRank];
+  // Region mild bonus
+  const region = state.currentRegion || "Outerland";
+  if (region === "Innerland") mult *= 1.08;
+  if (region === "Mainland") mult *= 1.15;
+  if (region === "Central Land") mult *= 1.22;
   const risk = deep && Math.random() < 0.15;
-  char.douQi = (char.douQi || 100) + Math.floor(randInt(80, 400) * mult);
+  const gain = Math.floor(randInt(80, 420) * mult);
+  char.douQi = (char.douQi || 100) + gain;
   char.purity = Math.min(100, (char.purity || 40) + randInt(1, 5));
   char.control = Math.min(100, (char.control || 30) + randInt(1, 4));
   char.experience = Math.min(100, (char.experience || 20) + randInt(2, 8));
   char.comprehension = Math.min(100, (char.comprehension || 20) + randInt(0, 3));
   if (risk) {
-    char.foundation = Math.max(10, char.foundation - randInt(5, 12));
-    showToast(`Deep meditation backfired! Foundation damaged. Still gained Dou Qi.`);
+    char.foundation = Math.max(10, (char.foundation || 50) - randInt(5, 12));
+    showToast(`Deep meditation backfired! Foundation damaged. Dou Qi +${gain}`);
   } else {
-    showToast(`${char.name} trained diligently. Dou Qi +${Math.floor(randInt(80, 400) * mult)}`);
+    showToast(`${char.name} trained in ${region}. Dou Qi +${gain}`);
   }
   saveState();
   switchView('cultivation');
@@ -884,6 +994,7 @@ function attemptBreakthrough() {
     char.foundation = Math.max(20, char.foundation - randInt(6, 15));
     char.douQi = Math.floor((char.douQi || 100) * 1.18);
     char.experience = Math.min(100, (char.experience || 30) + randInt(3, 8));
+    try { pushNews('Breakthrough', char.name + ' reached ' + char.star + ' ' + char.realm); } catch(e) {}
     showToast(`Breakthrough successful! ${char.name} is now ${char.star} ${char.realm}!`);
   } else {
     char.foundation = Math.max(5, char.foundation - randInt(5, 12));
@@ -955,10 +1066,16 @@ function simulateBattle() {
   rounds.push(`<div class="win">Final Blow: ${result.winner} overwhelmed ${result.loser} and claimed victory.</div>`);
 
   const winner = state.characters.find(c => c.name === result.winner);
+  const loser = state.characters.find(c => c.name === result.loser);
   if (winner) {
-    winner.experience = Math.min(100, (winner.experience || 50) + randInt(4, 12));
-    winner.kills = (winner.kills || 0) + (Math.random() > 0.65 ? 1 : 0);
-    winner.douQi = (winner.douQi || 0) + randInt(50, 200);
+    winner.experience = Math.min(100, (winner.experience || 50) + randInt(4, 14));
+    winner.kills = (winner.kills || 0) + (Math.random() > 0.6 ? 1 : 0);
+    winner.douQi = (winner.douQi || 0) + randInt(80, 280);
+    winner.comprehension = Math.min(100, (winner.comprehension || 20) + randInt(0, 2));
+  }
+  if (loser && Math.random() > 0.55) {
+    loser.foundation = Math.max(5, (loser.foundation || 40) - randInt(2, 7));
+    loser.douQi = Math.max(30, Math.floor((loser.douQi || 100) * 0.92));
   }
   const el = document.getElementById('battle-result');
   if (el) {
@@ -971,9 +1088,16 @@ function simulateBattle() {
         <p><strong>Loser:</strong> ${result.loser} (${result.loserRealm})</p>
         <p style="margin-top:12px;">${result.reason}</p>
         <p style="margin-top:12px;color:var(--text-muted);"><em>Impact:</em> ${result.impact}</p>
+        <p style="margin-top:8px;color:var(--text-dim);font-size:0.85rem;">Attribute context: ${f1.attribute} vs ${f2.attribute} (advantage factor applied in spirit of the Heavenly Dao).</p>
       </div>
     `;
   }
+  // Attribute advantage subtle effect on winner rewards
+  try {
+    const adv = getAttrAdvantage(f1.attribute, f2.attribute);
+    const w = state.characters.find(x => x.name === result.winner);
+    if (w && adv > 1) w.experience = Math.min(100, (w.experience||50)+2);
+  } catch(e) {}
   saveState();
   showToast('Battle concluded under the Heavenly Dao');
 }
@@ -986,81 +1110,103 @@ function generateChapter() {
     state.characters.push(char);
     state.currentCharacterId = char.id;
   }
+  if (!char.storyMemory) {
+    char.storyMemory = { rival: null, debts: [], victories: [], motifs: [], objective: null, heat: 0 };
+  }
+  const mem = char.storyMemory;
+  if (!mem.rival) mem.rival = { name: generateName(), attitude: "competitive" };
+  if (!mem.objective) {
+    const objectives = [
+      "secure cultivation resources without exposing the full hand",
+      "collect information on a ranked flame fluctuation",
+      "settle a face debt before it grows into clan war",
+      "convert alchemy skill into money and allies",
+      "survive a higher-region trial and return stronger",
+      "strengthen the clan vault and protect the next generation",
+      "raise an heir capable of carrying the blood name"
+    ];
+    mem.objective = objectives[Math.floor(Math.random() * objectives.length)];
+  }
 
   const region = state.currentRegion || "Outerland";
+  const world = state.world;
+  const n = state.storyChapters.length + 1;
   const aff = (char.affiliations && char.affiliations[0]) ? char.affiliations[0].name : null;
-  const recentEvent = (state.events && state.events.length) ? state.events[state.events.length-1].desc : null;
+  const recent = (state.events && state.events.length) ? state.events[state.events.length - 1] : null;
+  const prev = state.storyChapters.length ? state.storyChapters[state.storyChapters.length - 1] : null;
+  const tone = (state.meta && state.meta.tone) || "heroic";
+  const mode = state.chapterMode || "standard";
+  const weather = (state.calendar && state.calendar.weather) || "Clear";
 
-  const openings = [
-    `In the ${region} of ${state.world.name}, the wind carried both opportunity and death.`,
-    `Night covered the ${region}. ${char.name} sat in meditation as Dou Qi slowly circulated.`,
-    `The recent disturbances in the ${region} had not gone unnoticed by ${char.name}.`,
-    `Under the cold stars of ${state.world.name}, another day of cultivation began.`
+  // BTTH beat machine: pressure -> method -> stage -> clash -> payoff -> seed
+  const pressures = [
+    "Clan and street gossip cut sharper than blades; without a visible result, dignity would keep bleeding.",
+    "A rival force raised prices and barriers, turning ordinary supplies into strategic weapons.",
+    "A public slight forced a choice: endure and plan, or explode early and die uselessly.",
+    "Time itself became an enemy. Bottlenecks do not wait for perfect preparation."
+  ];
+  const methods = [
+    "Using careful alchemy and misdirection, " + char.name + " created room to breathe.",
+    "A fragment of higher technique was tempered in secret, not displayed.",
+    "Information was bought, stolen, or traded — because blind courage is just another corpse style.",
+    "Under pressure, " + char.name + " refined control of " + char.attribute + " Dou Qi rather than gambling on a reckless breakthrough."
+  ];
+  const stages = [
+    "An auction hall became a battlefield of smiles.",
+    "A roadside confrontation drew spectators who wanted drama more than truth.",
+    "A sect courtyard turned into a stage where status was currency.",
+    "A ruin entrance gathered geniuses like crows around a possible inheritance."
+  ];
+  const clashes = [
+    "Words failed. Dou Qi answered.",
+    mem.rival.name + " appeared at the worst perfect moment, turning pressure into spectacle.",
+    "A stronger expert tested the waters with a single suppressing palm.",
+    "Hidden identities strained; one mistake would collapse the entire act."
+  ];
+  const payoffs = [
+    "The immediate goal was met — not cleanly, but clean enough to change the next negotiation.",
+    "Resources changed hands. Reputation shifted by a measurable degree.",
+    "A small victory arrived with a large shadow attached.",
+    "The crowd learned a new name, whether " + char.name + " wanted that or not."
+  ];
+  const seeds = [
+    "A greater force marked the event for later collection.",
+    "A favor and a hatred were both born in the same hour.",
+    "Coordinates, names, and debts pointed toward the next region.",
+    "The Heavenly Dao remained silent; people did not."
   ];
 
-  const events = [
-    `${char.name} discovered a half-buried cave. Ancient formations still flickered weakly inside.`,
-    `A traveling merchant spoke of a Heavenly Flame fluctuation not far from the current region.`,
-    `An elder from a major force tested ${char.name}'s talent in secret and left without a word.`,
-    `A small secret realm entrance appeared for only three days. Many young geniuses rushed toward it.`,
-    `${char.name} refined a pill under pressure. The process nearly failed, yet yielded unexpected insight.`,
-    `A magical beast of surprising strength blocked the path. After a hard fight, a beast core was obtained.`,
-    `Rumors of a Dou Saint remnant spread through the black market.`,
-    `${char.name} felt a strange resonance with an old technique, as if it had been waiting for them.`,
-    `A conflict between two factions spilled into the open. Neutrals were forced to choose sides.`,
-    `While training, ${char.name} briefly touched a higher level of Dou Qi control.`
-  ];
+  let content = "";
+  content += "In " + world.name + " — " + region + " — " + char.name + " pursued a concrete aim: " + mem.objective + ".\n\n";
+  content += pressures[Math.floor(Math.random()*pressures.length)] + "\n\n";
+  if (prev) content += "After «" + prev.title.replace(/^Chapter \d+:\s*/, "") + "», the board had already changed.\n\n";
+  content += methods[Math.floor(Math.random()*methods.length)] + "\n\n";
+  content += stages[Math.floor(Math.random()*stages.length)] + " " + clashes[Math.floor(Math.random()*clashes.length)] + "\n\n";
+  if (aff) content += "Acting under " + aff + (char.factionRank ? " as " + char.factionRank : "") + " made every move semi-public.\n\n";
+  if (recent && Math.random() > 0.4) content += "Outside talk still carried recent fire: " + recent.desc + "\n\n";
+  content += "At " + char.star + " " + char.realm + ", talent rated " + char.talent + ", " + char.name + " could not afford empty pride.\n\n";
+  content += payoffs[Math.floor(Math.random()*payoffs.length)] + "\n\n";
+  content += seeds[Math.floor(Math.random()*seeds.length)];
+  if (mode === "epic") content += "\n\nIn the wider chronicle, this was only a hinge chapter: the kind later disciples would summarize in one sentence while missing the blood it cost.";
+  if (tone === "dark") content += "\n\nNo hymn followed. Only calculation.";
+  if (tone === "scheming") content += "\n\nThe smile that ended the day was not a kind one.";
 
-  // Faction-aware events
-  if (aff) {
-    events.push(`As a member of ${aff}, ${char.name} received a mission that could not be refused.`);
-    events.push(`Internal competition within ${aff} intensified. ${char.name}'s performance was being watched.`);
+  const titles = ["Face and Fire", "Auction Under Knives", "A Measured Counter", "Debt on the Road", "Stage of Geniuses", "Pay the Price Later", "Name in the Crowd", "Hidden Hand"];
+  const title = "Chapter " + n + ": " + titles[Math.floor(Math.random()*titles.length)];
+
+  char.experience = Math.min(100, (char.experience||20) + randInt(2,6));
+  char.comprehension = Math.min(100, (char.comprehension||20) + randInt(1,3));
+  mem.heat = Math.min(10, (mem.heat||0) + 1);
+  if (mem.heat >= 5 && Math.random() > 0.5) {
+    mem.objective = "convert recent fame into real foundation before stronger hunters arrive";
+    mem.heat = 0;
   }
-  if (recentEvent) {
-    events.push(`The aftermath of recent events still lingered: ${recentEvent}`);
-  }
 
-  const growth = [
-    `The battle and cultivation of recent days had quietly strengthened ${char.name}'s foundation.`,
-    `A faint bottleneck could be felt. The next breakthrough would not come easily.`,
-    `${char.name}'s understanding of ${char.attribute} Dou Qi deepened slightly.`,
-    `The path toward higher realms remained long, yet the will to continue only grew stronger.`
-  ];
-
-  const endings = [
-    `The Heavenly Dao remained silent. Only the strong would write their names into history.`,
-    `Whether this journey would end in glory or ruin, no one could yet say.`,
-    `${char.name} closed their eyes once more. The next step would decide many things.`,
-    `In the vast world of ${state.world.name}, another legend was slowly taking shape.`
-  ];
-
-  const titleThemes = ["Rising Flames", "Hidden Opportunity", "Blood and Dou Qi", "The Path Forward",
-    "Echoes of the Ancient Era", "Heavenly Tribulation", "Clan Crisis", "Secret Realm",
-    "Flame of Destiny", "Against the Heavens", "Faction Shadows", "Quiet Breakthrough", "Road of Bones"];
-
-  const chapter = {
-    title: `Chapter ${state.storyChapters.length + 1}: ${titleThemes[Math.floor(Math.random()*titleThemes.length)]}`,
-    content: `${openings[Math.floor(Math.random()*openings.length)]}
-
-${char.name}, currently a ${char.star} ${char.realm} with ${char.talent} talent, continued the long road of cultivation in the ${region}.
-
-${events[Math.floor(Math.random()*events.length)]}
-
-${events[Math.floor(Math.random()*events.length)]}
-
-${growth[Math.floor(Math.random()*growth.length)]}
-
-${endings[Math.floor(Math.random()*endings.length)]}`
-  };
-
-  // Small mechanical rewards
-  char.experience = Math.min(100, (char.experience || 20) + randInt(1, 4));
-  char.comprehension = Math.min(100, (char.comprehension || 20) + randInt(0, 2));
-
-  state.storyChapters.push(chapter);
+  state.storyChapters.push({ title, content, tags: [region, "btth-structure", tone] });
+  try { bumpStat("chapters", 1); } catch(e) {}
   saveState();
-  switchView('story');
-  showToast('New chapter written by the Heavenly Dao');
+  switchView("story");
+  showToast(title);
 }
 
 function triggerWorldEvent() {
@@ -1279,18 +1425,22 @@ function showGeniusRanking() {
 function dailyOpportunity() {
   const char = getActiveChar();
   if (!char) { showToast("Create a character first"); return; }
+  const region = state.currentRegion || "Outerland";
+  const mult = region === "Central Land" ? 1.6 : region === "Mainland" ? 1.35 : region === "Innerland" ? 1.15 : 1;
   const opportunities = [
     { title: "Ancient Remnant", desc: "You discovered a broken jade slip containing part of a high-rank technique.", effect: () => { state.techniques.push(generateTechnique()); } },
-    { title: "Beast Core", desc: "After a hard fight you obtained a high-quality beast core.", effect: () => { char.douQi += randInt(200, 800); char.experience = Math.min(100, char.experience + 5); } },
-    { title: "Pill Reward", desc: "An elder rewarded you with a rare pill for your recent performance.", effect: () => { if (!state.pills) state.pills = []; state.pills.push(rand(PILL_LIST)); } },
-    { title: "Sudden Enlightenment", desc: "While meditating, a flash of insight improved your comprehension.", effect: () => { char.comprehension = Math.min(100, char.comprehension + randInt(3, 8)); } },
+    { title: "Beast Core", desc: "After a hard fight you obtained a high-quality beast core.", effect: () => { char.douQi += Math.floor(randInt(200, 800)*mult); char.experience = Math.min(100, (char.experience||20) + Math.floor(5*mult)); } },
+    { title: "Pill Reward", desc: "An elder rewarded you with a rare pill for your recent performance.", effect: () => { if (!state.pills) state.pills = []; state.pills.push(PILL_LIST[Math.floor(Math.random()*PILL_LIST.length)]); } },
+    { title: "Sudden Enlightenment", desc: "While meditating, a flash of insight improved your comprehension.", effect: () => { char.comprehension = Math.min(100, (char.comprehension||20) + randInt(3, 9)); } },
     { title: "Faction Invitation", desc: "A major force has taken notice of your talent.", effect: () => { if (!char.affiliations) char.affiliations = []; char.affiliations.push({ type: "Invitation", name: "Mysterious Faction" }); } },
-    { title: "Nothing", desc: "The day passed quietly. Sometimes the Heavenly Dao gives no gifts.", effect: () => {} }
+    { title: "Hidden Cache", desc: "You found a small storage ring left by a fallen cultivator.", effect: () => { if (!char.inventory) char.inventory = []; char.inventory.push(generateItem()); char.inventory.push(generateItem()); } },
+    { title: "Sparring Match", desc: "A traveling expert sparred with you. Both sides benefited.", effect: () => { char.experience = Math.min(100, (char.experience||20) + randInt(4, 10)); char.control = Math.min(100, (char.control||30) + randInt(1, 4)); } },
+    { title: "Quiet Day", desc: "The day passed quietly. Sometimes the Heavenly Dao gives no gifts.", effect: () => {} }
   ];
   const op = opportunities[Math.floor(Math.random() * opportunities.length)];
   op.effect();
   saveState();
-  showToast(op.title + ": " + op.desc);
+  showToast("[" + region + "] " + op.title + ": " + op.desc);
   switchView('dashboard');
 }
 
@@ -1336,8 +1486,15 @@ function renderMap() {
       </div>
     </div>
     <div class="card">
-      <h3 class="card-title" style="margin-bottom:12px;">Travel Log</h3>
-      <p style="color:var(--text-muted);">Click a region above to travel. Your current location affects events and opportunities.</p>
+      <h3 class="card-title" style="margin-bottom:12px;">Region Control & Threat</h3>
+      <p style="color:var(--text-muted);font-size:0.9rem;">Global Threat: <strong style="color:var(--gold);">${(state.globalThreat||1)}</strong></p>
+      <div style="margin-top:10px;">
+        ${Object.keys(state.regionControl||{}).map(r => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;"><strong style="color:var(--gold);">${r}</strong> — ${(state.regionControl||{})[r]}</div>`).join("") || "<p class=\"text-dim\">Control data initializing...</p>"}
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-ghost" onclick="shiftRegionControl()">Shift Control</button>
+        <button class="btn-ghost" onclick="travelAmbush()">Ambush Check</button>
+      </div>
     </div>
   `;
 }
@@ -1351,17 +1508,26 @@ function travelTo(region) {
   }
   state.currentRegion = region;
   // Small chance of event on travel
-  if (Math.random() > 0.55) {
+  if (Math.random() > 0.4) {
     const events = [
-      "On the road you encountered a group of roaming magical beasts.",
-      "A mysterious cultivator exchanged a few words with you before vanishing.",
-      "You found a small herb that can slightly improve Dou Qi recovery.",
+      "On the road you encountered roaming magical beasts and tempered your combat sense.",
+      "A mysterious cultivator exchanged a few words with you before vanishing into the void.",
+      "You found a rare herb that slightly improves Dou Qi recovery.",
       "Rumors of a nearby secret realm reached your ears.",
+      "Bandits blocked the path. After a short fight, you continued onward.",
+      "An ancient stele by the roadside revealed a fragment of cultivation insight.",
       "The journey was quiet. The Heavenly Dao remained silent."
     ];
     const ev = events[Math.floor(Math.random()*events.length)];
     state.events = state.events || [];
     state.events.push({ title: "Travel Event", desc: ev });
+    const char = getActiveChar();
+    if (char && ev.includes("insight")) {
+      char.comprehension = Math.min(100, (char.comprehension||20) + randInt(1, 3));
+    }
+    if (char && ev.includes("combat")) {
+      char.experience = Math.min(100, (char.experience||20) + randInt(1, 4));
+    }
     showToast("Traveled to " + region + " — " + ev);
   } else {
     showToast("Traveled to " + region);
@@ -1389,6 +1555,7 @@ function doFactionMission() {
   const r = results[Math.floor(Math.random() * results.length)];
   char.experience = Math.min(100, (char.experience || 20) + r.exp);
   char.douQi = (char.douQi || 100) + r.qi;
+  gainContribution(randInt(8, 20));
   // Chance to raise internal rank
   if (!char.factionRank) char.factionRank = "Outer Disciple";
   if (Math.random() > 0.7) {
@@ -1542,6 +1709,2525 @@ function runAuction() {
   switchView('factions');
 }
 
+
+function resetWorld() {
+  if (!confirm("Reset ALL world data? Characters, stories, factions will be wiped.")) return;
+  state = { ...DEFAULT_STATE, sects:[], clans:[], empires:[], academies:[], auctions:[], pillTowers:[], events:[], pills:[], techniques:[], flames:[], beasts:[], characters:[], storyChapters:[], currentRegion:'Outerland' };
+  localStorage.removeItem('heavenlyDaoState');
+  saveState();
+  switchView('dashboard');
+  showToast("The Heavenly Dao has been reset");
+}
+
+
+// ===== ALL-30 SUPPORT SYSTEMS =====
+
+function getAttrAdvantage(a, b) {
+  const beat = { Fire:"Wood", Wood:"Earth", Earth:"Water", Water:"Fire", Lightning:"Water", Ice:"Fire", Wind:"Earth", Metal:"Wood", Dark:"Light", Light:"Dark", Poison:"Wood", Soul:"Dark", Blood:"Water", Void:"Soul" };
+  if (beat[a] === b) return 1.15;
+  if (beat[b] === a) return 0.87;
+  return 1;
+}
+
+function applyInjury(char, severity) {
+  if (!char) return;
+  char.injured = Math.min(5, (char.injured || 0) + severity);
+  char.foundation = Math.max(5, (char.foundation || 40) - severity * 2);
+  showToast(char.name + " is injured (level " + char.injured + ")");
+}
+
+function recoverInjury() {
+  const char = getActiveChar();
+  if (!char || !char.injured) { showToast("No injury to recover"); return; }
+  if (state.pills && state.pills.length) {
+    state.pills.pop();
+    char.injured = Math.max(0, char.injured - 2);
+    showToast("Used a pill. Injury now " + char.injured);
+  } else {
+    char.injured = Math.max(0, char.injured - 1);
+    char.douQi = Math.max(50, Math.floor((char.douQi||100)*0.95));
+    showToast("Natural recovery. Injury now " + char.injured + " (Dou Qi spent)");
+  }
+  saveState();
+  switchView('cultivation');
+}
+
+function gainContribution(amount) {
+  const char = getActiveChar();
+  if (!char) return;
+  char.contribution = (char.contribution || 0) + amount;
+}
+
+function factionShop() {
+  const char = getActiveChar();
+  if (!char) { showToast("Select a character"); return; }
+  if (!char.affiliations || !char.affiliations.length) { showToast("Join a faction first"); return; }
+  const cost = 30;
+  if ((char.contribution || 0) < cost) {
+    showToast("Need " + cost + " contribution (have " + (char.contribution||0) + "). Do faction missions.");
+    return;
+  }
+  char.contribution -= cost;
+  const rewards = ["pill", "item", "qi", "insight"];
+  const r = rewards[Math.floor(Math.random()*rewards.length)];
+  if (r === "pill") {
+    if (!state.pills) state.pills = [];
+    state.pills.push(PILL_LIST[Math.floor(Math.random()*PILL_LIST.length)]);
+    showToast("Shop: obtained a pill");
+  } else if (r === "item") {
+    if (!char.inventory) char.inventory = [];
+    char.inventory.push(generateItem());
+    showToast("Shop: obtained an item");
+  } else if (r === "qi") {
+    char.douQi = (char.douQi||100) + randInt(200, 600);
+    showToast("Shop: Dou Qi boost");
+  } else {
+    char.comprehension = Math.min(100, (char.comprehension||20)+randInt(2,5));
+    showToast("Shop: comprehension insight");
+  }
+  saveState();
+  switchView('character');
+}
+
+function awakenBloodline() {
+  const char = getActiveChar();
+  if (!char) return;
+  if (char.bloodlineAwakened) { showToast("Bloodline already awakened"); return; }
+  if ((char.foundation||0) < 55 || (char.comprehension||0) < 40) {
+    showToast("Need stronger foundation & comprehension to awaken bloodline");
+    return;
+  }
+  if (Math.random() > 0.45) {
+    char.bloodlineAwakened = true;
+    char.douQi = Math.floor((char.douQi||100)*1.2);
+    char.talent = char.talent === "Ordinary" ? "Excellent" : (char.talent === "Excellent" ? "Genius" : char.talent);
+    showToast("Bloodline awakened! Power surges.");
+  } else {
+    applyInjury(char, 1);
+    showToast("Awakening failed. Injury sustained.");
+  }
+  saveState();
+  switchView('cultivation');
+}
+
+function evolvePhysique() {
+  const char = getActiveChar();
+  if (!char) return;
+  const path = ["Ordinary Physique","Tough Physique","Fire Spirit Physique","Heavenly Flame Physique","Ancient Desolate Physique"];
+  const idx = path.indexOf(char.physique);
+  if (idx >= path.length-1 || idx < 0) {
+    // try generic upgrade mark
+    if (char.physique.includes("Heavenly") || char.physique.includes("Ancient") || char.physique.includes("Immortal")) {
+      showToast("Physique already near peak");
+      return;
+    }
+  }
+  if ((char.foundation||0) < 50) { showToast("Foundation too weak to evolve physique"); return; }
+  if (idx >= 0 && idx < path.length-1) {
+    char.physique = path[idx+1];
+  } else {
+    char.physique = "Spirit-Tempered " + char.physique;
+  }
+  char.foundation = Math.max(20, char.foundation - 8);
+  showToast("Physique evolved to: " + char.physique);
+  saveState();
+  switchView('cultivation');
+}
+
+function masterTechnique() {
+  const char = getActiveChar();
+  if (!char || !char.technique) { showToast("Learn a technique first"); return; }
+  const levels = ["Learned","Proficient","Perfect"];
+  char.techMastery = char.techMastery || "Learned";
+  const i = levels.indexOf(char.techMastery);
+  if (i >= levels.length-1) { showToast("Technique already Perfect"); return; }
+  if ((char.experience||0) < 30 + i*20) { showToast("Not enough combat experience to advance mastery"); return; }
+  char.techMastery = levels[i+1];
+  char.experience = Math.max(0, char.experience - 15);
+  showToast(char.technique + " → " + char.techMastery);
+  saveState();
+  switchView('character');
+}
+
+function renderCodex() {
+  const counts = {
+    characters: (state.characters||[]).length,
+    techniques: (state.techniques||[]).length,
+    flames: (state.flames||[]).length,
+    beasts: (state.beasts||[]).length,
+    sects: (state.sects||[]).length,
+    clans: (state.clans||[]).length,
+    empires: (state.empires||[]).length,
+    academies: (state.academies||[]).length,
+    auctions: (state.auctions||[]).length,
+    pillTowers: (state.pillTowers||[]).length,
+    chapters: (state.storyChapters||[]).length,
+    events: (state.events||[]).length
+  };
+  return `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><h3 class="card-title">World Codex</h3></div>
+      <p style="color:var(--text-muted);margin-bottom:16px;">Auto-encyclopedia of everything recorded by the Heavenly Dao.</p>
+      <p style="color:var(--text-muted);font-size:0.9rem;">Calendar: Year ${(state.calendar&&state.calendar.year)||1} Month ${(state.calendar&&state.calendar.month)||1} · Weather ${(state.calendar&&state.calendar.weather)||"Clear"} · Threat ${(state.globalThreat||1)}</p>
+      <div class="grid-4">
+        ${Object.keys(counts).map(k => `
+          <div class="stat-box"><div class="label">${k}</div><div class="value">${counts[k]}</div></div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:12px;">Characters</h3>
+      ${(state.characters||[]).map(ch => `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.9rem;"><strong style="color:var(--gold);">${ch.name}</strong> — ${ch.star} ${ch.realm} · ${ch.talent} · ${ch.attribute}</div>`).join('') || '<p style="color:var(--text-dim)">None</p>'}
+    </div>
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:12px;">Heavenly Flames</h3>
+      ${(state.flames||[]).map(f => `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.9rem;"><strong style="color:var(--red-glow);">${f.name}</strong> — Rank ${f.rank}</div>`).join('') || '<p style="color:var(--text-dim)">None</p>'}
+    </div>
+    <div class="card">
+      <h3 class="card-title" style="margin-bottom:12px;">Legend Timeline</h3>
+      ${(state.storyChapters||[]).slice(-15).map(ch => `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.88rem;color:var(--text-muted);">${ch.title}</div>`).join('') || '<p style="color:var(--text-dim)">No chapters yet</p>'}
+    </div>
+  `;
+}
+
+function regionEncounter() {
+  const char = getActiveChar();
+  const region = state.currentRegion || "Outerland";
+  const danger = { "Outerland": 0.2, "Innerland": 0.35, "Mainland": 0.5, "Central Land": 0.65 }[region] || 0.3;
+  const roll = Math.random();
+  let msg = "[" + region + "] ";
+  if (roll < danger) {
+    msg += "Ambush! A hostile cultivator attacked.";
+    if (char) {
+      if (Math.random() > 0.5) {
+        char.experience = Math.min(100, (char.experience||20)+randInt(3,8));
+        char.douQi = (char.douQi||100)+randInt(50,200);
+        msg += " You won and gained spoils.";
+      } else {
+        applyInjury(char, 1);
+        msg += " You escaped injured.";
+      }
+    }
+  } else if (roll < danger + 0.25) {
+    msg += "You found a hidden resource cache.";
+    if (char) {
+      if (!char.inventory) char.inventory = [];
+      char.inventory.push(generateItem());
+      char.douQi = (char.douQi||100)+randInt(100,400);
+    }
+  } else {
+    msg += "The area is calm. You observe and cultivate quietly.";
+    if (char) char.comprehension = Math.min(100, (char.comprehension||20)+1);
+  }
+  state.events = state.events || [];
+  state.events.push({ title: "Region Encounter", desc: msg });
+  saveState();
+  showToast(msg);
+  switchView('map');
+}
+
+function storyChoice(choice) {
+  const char = getActiveChar();
+  if (!char) return;
+  if (choice === 'fight') {
+    char.experience = Math.min(100, (char.experience||20)+randInt(4,9));
+    if (Math.random()>0.6) applyInjury(char,1);
+    showToast("You chose to fight. Strength rises, danger follows.");
+  } else if (choice === 'scheme') {
+    char.comprehension = Math.min(100, (char.comprehension||20)+randInt(2,5));
+    gainContribution(5);
+    showToast("You chose to scheme. Insight and contribution gained.");
+  } else {
+    char.foundation = Math.min(100, (char.foundation||40)+randInt(1,4));
+    showToast("You chose patience. Foundation solidifies.");
+  }
+  // generate a chapter after choice
+  generateChapter();
+}
+
+
+
+// ===== SECOND ALL-30 SYSTEMS =====
+
+function ensureMeta() {
+  if (!state.meta) state.meta = { tone: "heroic", season: "Calm Season", danger: 1, tutorialStep: 0 };
+  if (!state.saveSlots) state.saveSlots = { 1: null, 2: null, 3: null };
+  if (!state.resources) state.resources = { herbs: 0, cores: 0, ores: 0 };
+  if (!state.duelLog) state.duelLog = [];
+}
+
+function setStoryTone(tone) {
+  ensureMeta();
+  state.meta.tone = tone;
+  saveState();
+  showToast("Story tone: " + tone);
+}
+
+function advanceSeason() {
+  ensureMeta();
+  const seasons = ["Calm Season", "Tournament Season", "Beast Tide Season", "Flame Season", "Ruin Season"];
+  let i = seasons.indexOf(state.meta.season);
+  state.meta.season = seasons[(i + 1) % seasons.length];
+  state.meta.danger = state.meta.season.includes("Calm") ? 1 : state.meta.season.includes("Tournament") ? 2 : 3;
+  state.events = state.events || [];
+  state.events.push({ title: "Season Change", desc: "The world enters " + state.meta.season + "." });
+  saveState();
+  showToast("Season: " + state.meta.season);
+  switchView('world');
+}
+
+function gatherResources() {
+  const region = state.currentRegion || "Outerland";
+  const mult = { Outerland: 1, Innerland: 1.3, Mainland: 1.7, "Central Land": 2.2 }[region] || 1;
+  ensureMeta();
+  state.resources.herbs += Math.floor(randInt(1, 4) * mult);
+  state.resources.cores += Math.floor(randInt(0, 2) * mult);
+  state.resources.ores += Math.floor(randInt(0, 3) * mult);
+  saveState();
+  showToast(`Gathered resources in ${region}: H${state.resources.herbs} C${state.resources.cores} O${state.resources.ores}`);
+}
+
+function bindFlameToBody() {
+  const char = getActiveChar();
+  if (!char) return;
+  if (!state.flames || !state.flames.length) { showToast("Discover a Heavenly Flame first"); return; }
+  if (char.boundFlame) { showToast("Already bound: " + char.boundFlame); return; }
+  if ((char.foundation || 0) < 60) { showToast("Foundation too weak to bind a flame"); return; }
+  const flame = state.flames[state.flames.length - 1];
+  if (Math.random() > 0.4) {
+    char.boundFlame = flame.name;
+    char.attribute = "Fire";
+    char.douQi = Math.floor((char.douQi || 100) * 1.25);
+    char.purity = Math.min(100, (char.purity || 50) + 8);
+    showToast("Bound " + flame.name + " into the body!");
+  } else {
+    applyInjury(char, 2);
+    showToast("Flame rejected the body. Severe injury!");
+  }
+  saveState();
+  switchView('cultivation');
+}
+
+function enterSeclusion() {
+  const char = getActiveChar();
+  if (!char) return;
+  if (char.injured && char.injured > 2) { showToast("Too injured for seclusion"); return; }
+  const days = randInt(3, 10);
+  const gain = days * randInt(40, 120);
+  char.douQi = (char.douQi || 100) + gain;
+  char.foundation = Math.min(100, (char.foundation || 40) + randInt(1, 4));
+  char.comprehension = Math.min(100, (char.comprehension || 20) + randInt(1, 3));
+  // miss a world event sometimes
+  if (Math.random() > 0.5) {
+    state.events = state.events || [];
+    state.events.push({ title: "Missed Event", desc: char.name + " was in seclusion and missed a major disturbance in the " + (state.currentRegion || "lands") + "." });
+  }
+  saveState();
+  showToast(`Seclusion for ${days} days. Dou Qi +${gain}`);
+  switchView('cultivation');
+}
+
+function bottleneckStatus(char) {
+  if (!char) return "—";
+  const need = 35 + (DOU_QI_RANKS.findIndex(r => r.name === char.realm) * 5);
+  const have = char.foundation || 0;
+  return Math.min(100, Math.floor((have / Math.max(need, 1)) * 100)) + "% to safe breakthrough";
+}
+
+function escapeBattle() {
+  const char = getActiveChar();
+  if (!char) return;
+  char.reputation = "Known for caution";
+  if (Math.random() > 0.5) {
+    showToast("Escaped cleanly.");
+  } else {
+    applyInjury(char, 1);
+    showToast("Escaped with injuries. Reputation altered.");
+  }
+  saveState();
+}
+
+function recordDuel(winner, loser, note) {
+  ensureMeta();
+  state.duelLog = state.duelLog || [];
+  state.duelLog.push({ winner, loser, note, t: Date.now() });
+  if (state.duelLog.length > 30) state.duelLog.shift();
+}
+
+function teamSpar() {
+  if ((state.characters || []).length < 2) { showToast("Need 2+ characters"); return; }
+  const a = state.characters[0];
+  const b = state.characters[1];
+  const result = generateBattleResult(a, b);
+  recordDuel(result.winner, result.loser, "Team spar / internal duel");
+  showToast(result.winner + " prevailed in spar against " + result.loser);
+  saveState();
+  switchView('battle');
+}
+
+function runTutorial() {
+  ensureMeta();
+  const steps = [
+    "Create a world (World Creator).",
+    "Generate a Dou Zhe character.",
+    "Train Dou Qi on Cultivation tab.",
+    "Generate a technique and learn it.",
+    "Join a sect and run a faction mission.",
+    "Travel on the Continent Map.",
+    "Generate 3 story chapters.",
+    "Attempt a breakthrough."
+  ];
+  const i = state.meta.tutorialStep || 0;
+  if (i >= steps.length) {
+    showToast("Tutorial complete. The Heavenly Dao acknowledges you.");
+    return;
+  }
+  showToast("Tutorial " + (i + 1) + "/" + steps.length + ": " + steps[i]);
+  state.meta.tutorialStep = i + 1;
+  saveState();
+}
+
+function saveToSlot(n) {
+  ensureMeta();
+  state.saveSlots[n] = JSON.parse(JSON.stringify(state));
+  // avoid recursive huge slots inside slots
+  if (state.saveSlots[n].saveSlots) state.saveSlots[n].saveSlots = { 1: null, 2: null, 3: null };
+  saveState();
+  showToast("Saved to slot " + n);
+}
+
+function loadFromSlot(n) {
+  ensureMeta();
+  const slot = state.saveSlots[n];
+  if (!slot) { showToast("Slot " + n + " is empty"); return; }
+  const slotsBackup = state.saveSlots;
+  state = slot;
+  state.saveSlots = slotsBackup;
+  saveState();
+  switchView('dashboard');
+  showToast("Loaded slot " + n);
+}
+
+function ensureCast(char) {
+  if (!char.cast) {
+    char.cast = {
+      master: generateName() + " (Hidden Expert)",
+      sibling: generateName() + " (Sworn Sibling)",
+      betrayer: generateName() + " (Smiling Blade)"
+    };
+  }
+  if (!char.rivalStage) char.rivalStage = "strangers";
+}
+
+function advanceRivalStage(char) {
+  const stages = ["strangers", "rivals", "nemesis", "reluctant ally"];
+  const i = stages.indexOf(char.rivalStage || "strangers");
+  if (i < stages.length - 1) char.rivalStage = stages[i + 1];
+}
+
+function wantedByAncients() {
+  const char = getActiveChar();
+  if (!char) return;
+  char.wanted = Math.min(5, (char.wanted || 0) + 1);
+  state.events = state.events || [];
+  state.events.push({ title: "Ancient Clan Notice", desc: char.name + " has drawn unwanted attention. Wanted level: " + char.wanted });
+  showToast("Wanted level: " + char.wanted);
+  saveState();
+}
+
+function allianceContract() {
+  if (!(state.clans || []).length || (state.clans.length < 1)) {
+    showToast("Create a clan first");
+    return;
+  }
+  const c = state.clans[0];
+  state.events = state.events || [];
+  state.events.push({ title: "Alliance Contract", desc: c.name + " formed a temporary alliance pact. Politics shift." });
+  showToast("Alliance contract signed for " + c.name);
+  saveState();
+}
+
+function academyExam() {
+  const char = getActiveChar();
+  if (!char) return;
+  if (!(state.academies || []).length) { showToast("Create an academy first"); return; }
+  const score = randInt(40, 100) + ((char.comprehension || 20) / 5);
+  if (score > 80) {
+    char.experience = Math.min(100, (char.experience || 20) + 8);
+    char.comprehension = Math.min(100, (char.comprehension || 20) + 3);
+    showToast("Exam outstanding. Rewards gained.");
+  } else if (score > 60) {
+    char.experience = Math.min(100, (char.experience || 20) + 4);
+    showToast("Exam passed.");
+  } else {
+    showToast("Exam failed. Train more.");
+  }
+  saveState();
+}
+
+function pillCommission() {
+  ensureMeta();
+  if ((state.resources.herbs || 0) < 3) { showToast("Need at least 3 herbs (gather resources)"); return; }
+  state.resources.herbs -= 3;
+  if (!state.pills) state.pills = [];
+  state.pills.push(PILL_LIST[Math.floor(Math.random() * PILL_LIST.length)]);
+  showToast("Pill Tower commission complete");
+  saveState();
+}
+
+
+
+// ===== TRUE BRANCHING STORY GRAPH =====
+
+const STORY_GRAPH = {
+  start: {
+    id: "start",
+    title: "The First Divergence",
+    text: "A dying messenger collapses before you, pressing a blood-stained jade slip into your hand. Behind him, pursuit draws near. The slip pulses with incomplete spatial coordinates.",
+    choices: [
+      { id: "protect", label: "Protect the messenger and fight", next: "fight_chase", effects: { exp: 4, injuryChance: 0.3, flag: "saved_messenger" } },
+      { id: "take_slip", label: "Take the slip and vanish", next: "vanish_with_slip", effects: { exp: 2, flag: "stole_slip", wanted: 1 } },
+      { id: "destroy", label: "Destroy the slip to avoid calamity", next: "destroy_slip", effects: { foundation: 2, flag: "rejected_fate" } }
+    ]
+  },
+  fight_chase: {
+    id: "fight_chase",
+    title: "Blood on the Road",
+    text: "You stand your ground. Blades and Dou Qi clash under a dim sky. The messenger survives — barely — and whispers a name connected to an Ancient Clan remnant.",
+    choices: [
+      { id: "ask_name", label: "Demand the full truth", next: "truth_revealed", effects: { flag: "knows_truth", comprehension: 2 } },
+      { id: "escort", label: "Escort him to the nearest sect", next: "sect_shelter", effects: { contribution: 10, flag: "allied_messenger" } },
+      { id: "leave_wounded", label: "Leave him hidden and investigate alone", next: "solo_investigate", effects: { exp: 3, flag: "lone_path" } }
+    ]
+  },
+  vanish_with_slip: {
+    id: "vanish_with_slip",
+    title: "Stolen Destiny",
+    text: "You disappear into the wilds with the jade slip. The pursuers howl behind you. The slip shows a ruin that should not exist on any public map.",
+    choices: [
+      { id: "open_ruin", label: "Head straight to the ruin", next: "ruin_gate", effects: { flag: "early_ruin", exp: 3 } },
+      { id: "decode_first", label: "Decode the slip carefully first", next: "decode_slip", effects: { comprehension: 4, flag: "careful_decoder" } },
+      { id: "sell_info", label: "Sell the information to a faction", next: "sell_clue", effects: { contribution: 15, flag: "sold_destiny", wanted: 1 } }
+    ]
+  },
+  destroy_slip: {
+    id: "destroy_slip",
+    title: "Rejected Heaven",
+    text: "The slip turns to powder under your Dou Qi. For a moment the world seems quieter. Then a different kind of trouble finds you: people who wanted that slip now want the one who destroyed it.",
+    choices: [
+      { id: "confess", label: "Publicly admit you destroyed it", next: "public_stance", effects: { flag: "open_enemy", foundation: 3 } },
+      { id: "frame", label: "Frame another faction", next: "frame_faction", effects: { flag: "schemer", wanted: 1 } },
+      { id: "hide", label: "Go into hiding and cultivate", next: "hidden_seclusion", effects: { qi: 300, flag: "shadow_path" } }
+    ]
+  },
+  truth_revealed: {
+    id: "truth_revealed",
+    title: "Name of the Remnant",
+    text: "The truth is heavier than expected: the coordinates lead to a sealed Dou Saint remnant, and three major forces already know fragments of it.",
+    choices: [
+      { id: "race", label: "Race to the remnant alone", next: "ending_solo_glory", effects: { exp: 8, flag: "ending_solo" } },
+      { id: "alliance", label: "Build a temporary alliance", next: "ending_alliance", effects: { contribution: 20, flag: "ending_alliance" } },
+      { id: "betray_info", label: "Sell everyone out and profit", next: "ending_scheme", effects: { wanted: 2, flag: "ending_scheme" } }
+    ]
+  },
+  sect_shelter: {
+    id: "sect_shelter",
+    title: "Under Sect Eaves",
+    text: "A sect takes the messenger in. You gain favor — and surveillance. Elders smile while weighing your usefulness.",
+    choices: [
+      { id: "join_deeper", label: "Accept deeper sect involvement", next: "ending_sect", effects: { contribution: 25, flag: "ending_sect" } },
+      { id: "use_sect", label: "Use their resources then leave", next: "ending_solo_glory", effects: { qi: 400, flag: "ending_used_sect" } }
+    ]
+  },
+  solo_investigate: {
+    id: "solo_investigate",
+    title: "Alone With the Clue",
+    text: "Without allies, every step is cleaner and more dangerous. You find a secondary mark on the messenger's map — a trap route and a true route.",
+    choices: [
+      { id: "true_route", label: "Take the true route", next: "ruin_gate", effects: { flag: "true_path", exp: 5 } },
+      { id: "trap_route", label: "Trigger the trap to bait enemies", next: "ending_scheme", effects: { flag: "baited_enemies", exp: 5 } }
+    ]
+  },
+  ruin_gate: {
+    id: "ruin_gate",
+    title: "Gate of the Dead Saint",
+    text: "The ruin gate breathes cold willpower. Guardians stir. Inside may be inheritance — or annihilation.",
+    choices: [
+      { id: "force_open", label: "Force the gate with raw power", next: "ending_solo_glory", effects: { injuryChance: 0.4, exp: 10, flag: "forced_gate" } },
+      { id: "solve_seal", label: "Solve the seal with comprehension", next: "ending_alliance", effects: { comprehension: 5, flag: "solved_seal" } }
+    ]
+  },
+  decode_slip: {
+    id: "decode_slip",
+    title: "Lines Under the Lines",
+    text: "Careful decoding reveals a second message: the remnant is a test, not a gift. Those who enter with greed are culled.",
+    choices: [
+      { id: "prepare", label: "Prepare meticulously then enter", next: "ruin_gate", effects: { foundation: 3, flag: "prepared" } },
+      { id: "abandon", label: "Abandon the remnant as cursed", next: "ending_reject", effects: { foundation: 5, flag: "ending_reject" } }
+    ]
+  },
+  sell_clue: {
+    id: "sell_clue",
+    title: "Price of a Secret",
+    text: "A faction pays well. Too well. You realize you may have sold your own future seat at the inheritance table.",
+    choices: [
+      { id: "double", label: "Double-sell to their enemies", next: "ending_scheme", effects: { wanted: 2, flag: "double_sell" } },
+      { id: "lie_low", label: "Take the wealth and disappear", next: "hidden_seclusion", effects: { qi: 500, flag: "bought_time" } }
+    ]
+  },
+  public_stance: {
+    id: "public_stance",
+    title: "Open Blade",
+    text: "Your admission makes enemies openly. It also makes a few desperate people trust you.",
+    choices: [
+      { id: "lead", label: "Lead those people toward a new path", next: "ending_alliance", effects: { flag: "ending_leader" } },
+      { id: "war", label: "Declare conflict against the hunters", next: "ending_solo_glory", effects: { exp: 8, flag: "open_war" } }
+    ]
+  },
+  frame_faction: {
+    id: "frame_faction",
+    title: "Borrowed Crime",
+    text: "The frame job works — briefly. Politics boil. You gain time and lose innocence.",
+    choices: [
+      { id: "escalate", label: "Escalate the political fire", next: "ending_scheme", effects: { wanted: 1, flag: "chaos_maker" } },
+      { id: "exit", label: "Exit the board entirely", next: "ending_reject", effects: { foundation: 4, flag: "exited_board" } }
+    ]
+  },
+  hidden_seclusion: {
+    id: "hidden_seclusion",
+    title: "Closed Door",
+    text: "You vanish into seclusion. The world moves without you. When you return, the remnant affair has already changed owners.",
+    choices: [
+      { id: "return_stronger", label: "Return stronger and reclaim a share", next: "ending_solo_glory", effects: { qi: 600, exp: 6, flag: "late_return" } },
+      { id: "never_return", label: "Let that destiny go forever", next: "ending_reject", effects: { foundation: 6, flag: "true_renunciation" } }
+    ]
+  },
+
+  // === ARC: Flame War ===
+  flame_start: {
+    id: "flame_start",
+    title: "Flame War: Embers",
+    text: "Two factions claim the same Heavenly Flame fluctuation. Markets freeze. Experts move. You are close enough to choose a side — or a third path.",
+    choices: [
+      { id: "side_a", label: "Side with the first faction", next: "flame_side", effects: { flag: "flame_side_a", contribution: 8 } },
+      { id: "side_b", label: "Side with the second faction", next: "flame_side", effects: { flag: "flame_side_b", contribution: 8 } },
+      { id: "third", label: "Hunt the flame alone", next: "flame_solo", effects: { flag: "flame_solo_hunt", exp: 4 } }
+    ]
+  },
+  flame_side: {
+    id: "flame_side",
+    title: "Flame War: Banner",
+    text: "Under a banner, you gain scouts and enemies. The flame's true landing site is narrowed to three valleys.",
+    choices: [
+      { id: "valley_fight", label: "Contest the central valley", next: "flame_clash", effects: { exp: 5, injuryChance: 0.25 } },
+      { id: "valley_scheme", label: "Leak false coordinates", next: "flame_scheme", effects: { flag: "flame_false_map", comprehension: 2 } }
+    ]
+  },
+  flame_solo: {
+    id: "flame_solo",
+    title: "Flame War: Lone Spark",
+    text: "Alone, you arrive earlier — and more exposed. The flame's pressure alone can crush greedy minds.",
+    choices: [
+      { id: "bind_attempt", label: "Attempt to approach and claim", next: "ending_solo_glory", effects: { flag: "claimed_flame_attempt", injuryChance: 0.35, exp: 10 } },
+      { id: "observe", label: "Observe and steal the aftermath", next: "flame_scheme", effects: { flag: "flame_opportunist", exp: 4 } }
+    ]
+  },
+  flame_clash: {
+    id: "flame_clash",
+    title: "Flame War: Collision",
+    text: "Dou Qi turns the valley into a furnace. Whoever still stands when the flame stabilizes will write the next regional order.",
+    choices: [
+      { id: "push", label: "Push through for the core claim", next: "ending_solo_glory", effects: { exp: 12, injuryChance: 0.4, flag: "flame_war_victor" } },
+      { id: "withdraw", label: "Withdraw with intelligence intact", next: "ending_alliance", effects: { comprehension: 4, flag: "flame_war_survivor" } }
+    ]
+  },
+  flame_scheme: {
+    id: "flame_scheme",
+    title: "Flame War: After-Smoke",
+    text: "While giants collide, you take what the chaos loosens: maps, cores, and debts.",
+    choices: [
+      { id: "cash_out", label: "Convert chaos into profit", next: "ending_scheme", effects: { qi: 700, flag: "flame_profiteer" } },
+      { id: "trade_favor", label: "Trade findings for protection", next: "ending_sect", effects: { contribution: 30, flag: "flame_protected" } }
+    ]
+  },
+
+  // === ARC: Academy ===
+  academy_start: {
+    id: "academy_start",
+    title: "Academy Arc: Entrance",
+    text: "An academy opens special recommendation slots. Exams, politics, and genius rivalries intertwine. A single ranking can alter a decade.",
+    choices: [
+      { id: "exam", label: "Enter through formal exam", next: "academy_exam", effects: { flag: "academy_exam_path", comprehension: 2 } },
+      { id: "recommend", label: "Use faction recommendation", next: "academy_rec", effects: { flag: "academy_rec_path", contribution: -5 } },
+      { id: "infiltrate", label: "Infiltrate as an attendant", next: "academy_shadow", effects: { flag: "academy_shadow", exp: 2 } }
+    ]
+  },
+  academy_exam: {
+    id: "academy_exam",
+    title: "Academy Arc: Trial",
+    text: "The exam is fair only on the surface. Hidden scoring favors bloodlines and sponsors.",
+    choices: [
+      { id: "pure_skill", label: "Win by pure skill", next: "academy_inner", effects: { exp: 6, comprehension: 3, flag: "academy_merit" } },
+      { id: "expose", label: "Expose scoring corruption", next: "academy_conflict", effects: { flag: "academy_whistle", wanted: 1 } }
+    ]
+  },
+  academy_rec: {
+    id: "academy_rec",
+    title: "Academy Arc: Sponsored",
+    text: "You enter easily — and are treated as someone's tool. Resources appear. Freedom shrinks.",
+    choices: [
+      { id: "obey", label: "Obey and climb", next: "academy_inner", effects: { contribution: 12, flag: "academy_tool" } },
+      { id: "break", label: "Break the sponsor's leash", next: "academy_conflict", effects: { flag: "academy_unbound", exp: 5 } }
+    ]
+  },
+  academy_shadow: {
+    id: "academy_shadow",
+    title: "Academy Arc: Shadow Seat",
+    text: "As an attendant, you hear truths disciples miss. Knowledge becomes your real cultivation resource.",
+    choices: [
+      { id: "steal_art", label: "Steal a restricted technique fragment", next: "ending_scheme", effects: { flag: "academy_theft", exp: 5 } },
+      { id: "earn_place", label: "Earn a real disciple place quietly", next: "academy_inner", effects: { flag: "academy_earned", comprehension: 4 } }
+    ]
+  },
+  academy_inner: {
+    id: "academy_inner",
+    title: "Academy Arc: Inner Court",
+    text: "Inner court life is polished war. Friendships are temporary treaties.",
+    choices: [
+      { id: "top_rank", label: "Aim for top rank at all costs", next: "ending_solo_glory", effects: { exp: 10, flag: "academy_top" } },
+      { id: "build_circle", label: "Build a durable circle of allies", next: "ending_alliance", effects: { contribution: 20, flag: "academy_circle" } }
+    ]
+  },
+  academy_conflict: {
+    id: "academy_conflict",
+    title: "Academy Arc: Open Rift",
+    text: "Conflict spills beyond rules. Elders intervene only when their interests burn.",
+    choices: [
+      { id: "stand", label: "Stand on principle", next: "ending_reject", effects: { foundation: 5, flag: "academy_principled" } },
+      { id: "weaponize", label: "Weaponize the scandal", next: "ending_scheme", effects: { wanted: 1, flag: "academy_scandal" } }
+    ]
+  },
+
+  // === ARC: Ancient Clan Hunt ===
+  hunt_start: {
+    id: "hunt_start",
+    title: "Ancient Hunt: Marked",
+    text: "An Ancient Clan mark appears in the market blacklists. Your name is close to it — whether by mistake or design.",
+    choices: [
+      { id: "clear_name", label: "Try to clear your name", next: "hunt_clear", effects: { flag: "hunt_clear_path" } },
+      { id: "run", label: "Run before the net closes", next: "hunt_run", effects: { flag: "hunt_fugitive", exp: 2 } },
+      { id: "counter", label: "Counter-investigate the clan branch", next: "hunt_counter", effects: { flag: "hunt_counter", wanted: 1 } }
+    ]
+  },
+  hunt_clear: {
+    id: "hunt_clear",
+    title: "Ancient Hunt: Evidence",
+    text: "Clearing a name under Ancient Clan pressure requires evidence and sacrifices.",
+    choices: [
+      { id: "trade_secret", label: "Trade a secret for temporary pardon", next: "ending_sect", effects: { flag: "hunt_pardoned", contribution: 15 } },
+      { id: "public_proof", label: "Present proof publicly", next: "ending_alliance", effects: { flag: "hunt_public", exp: 6 } }
+    ]
+  },
+  hunt_run: {
+    id: "hunt_run",
+    title: "Ancient Hunt: Exile Road",
+    text: "Roads close behind you. In exile, strength grows fast — and so does paranoia.",
+    choices: [
+      { id: "border_force", label: "Join a border force under a false name", next: "ending_sect", effects: { flag: "hunt_false_name", exp: 5 } },
+      { id: "revenge_train", label: "Train only for return and revenge", next: "ending_solo_glory", effects: { exp: 10, flag: "hunt_revenge" } }
+    ]
+  },
+  hunt_counter: {
+    id: "hunt_counter",
+    title: "Ancient Hunt: Into the Shadow",
+    text: "You dig into a branch elder's crime. The deeper you dig, the more the clan notices.",
+    choices: [
+      { id: "expose_elder", label: "Expose the elder", next: "ending_scheme", effects: { wanted: 2, flag: "hunt_exposed_elder" } },
+      { id: "blackmail", label: "Blackmail for protection and resources", next: "ending_scheme", effects: { qi: 900, flag: "hunt_blackmail" } }
+    ]
+  },
+
+
+  // Endings
+  ending_solo_glory: {
+    id: "ending_solo_glory",
+    title: "Ending: Lone Apex Path",
+    text: "You carve a path with your own hands. Gains are real, protection is scarce, and your name begins to spread as a dangerous independent.\n\n[Branch Complete: Solo Glory]",
+    choices: [],
+    ending: true,
+    reward: { exp: 12, qi: 800 }
+  },
+  ending_alliance: {
+    id: "ending_alliance",
+    title: "Ending: Shared Banner",
+    text: "You bind your fate to others. Power comes with obligations, but also with shields you could not forge alone.\n\n[Branch Complete: Alliance]",
+    choices: [],
+    ending: true,
+    reward: { contribution: 40, exp: 8 }
+  },
+  ending_scheme: {
+    id: "ending_scheme",
+    title: "Ending: Web of Knives",
+    text: "You profit from conflict itself. Wealth and information pile up — so do hunters. The Heavenly Dao records your methods coldly.\n\n[Branch Complete: Schemer]",
+    choices: [],
+    ending: true,
+    reward: { wanted: 1, qi: 1000, exp: 8 }
+  },
+  ending_sect: {
+    id: "ending_sect",
+    title: "Ending: Sect Shadow Rise",
+    text: "Within the faction structure, you rise. Resources flow. Freedom shrinks. A future elder seat glimmers in the distance.\n\n[Branch Complete: Sect Path]",
+    choices: [],
+    ending: true,
+    reward: { contribution: 50, exp: 10 }
+  },
+  ending_reject: {
+    id: "ending_reject",
+    title: "Ending: Beyond the Bait",
+    text: "You refuse the obvious destiny trap. Your foundation deepens in quiet places while others die for incomplete inheritances.\n\n[Branch Complete: Rejection]",
+    choices: [],
+    ending: true,
+    reward: { foundation: 8, comprehension: 5 }
+  }
+};
+
+function ensureBranchState() {
+  if (!state.branch) {
+    state.branch = {
+      current: "start",
+      history: [],
+      flags: {},
+      completedEndings: []
+    };
+  }
+}
+
+function applyBranchEffects(effects) {
+  const char = getActiveChar();
+  if (!effects) return;
+  if (!char) return;
+  if (effects.exp) char.experience = Math.min(100, (char.experience || 20) + effects.exp);
+  if (effects.comprehension) char.comprehension = Math.min(100, (char.comprehension || 20) + effects.comprehension);
+  if (effects.foundation) char.foundation = Math.min(100, (char.foundation || 40) + effects.foundation);
+  if (effects.qi) char.douQi = (char.douQi || 100) + effects.qi;
+  if (effects.contribution) gainContribution(effects.contribution);
+  if (effects.wanted) char.wanted = Math.min(5, (char.wanted || 0) + effects.wanted);
+  if (effects.injuryChance && Math.random() < effects.injuryChance) applyInjury(char, 1);
+  if (effects.flag) state.branch.flags[effects.flag] = true;
+}
+
+function renderBranchStory() {
+  ensureBranchState();
+  const node = STORY_GRAPH[state.branch.current] || STORY_GRAPH.start;
+  const flags = Object.keys(state.branch.flags || {}).filter(k => state.branch.flags[k]);
+  const endings = state.branch.completedEndings || [];
+  const visited = new Set(["start", ...(state.branch.history || []).map(h => {
+    // history stores choice ids; also track node ids visited via current path reconstruction loosely
+    return h;
+  }), state.branch.current]);
+  // Build visited nodes list from path by walking known transitions roughly via history length
+  const visitedNodes = state.branch.visitedNodes || ["start"];
+
+  let choicesHtml = "";
+  if (node.choices && node.choices.length) {
+    choicesHtml = node.choices.map(ch => `
+      <button class="btn-primary" style="width:100%;margin-bottom:10px;text-align:left;padding:14px 16px;" onclick="pickBranchChoice('${ch.id}')">
+        ${ch.label}
+      </button>
+    `).join("");
+  } else {
+    choicesHtml = `
+      <button class="btn-primary" onclick="resetBranchGraph()">Begin a New Branching Arc</button>
+      <button class="btn-ghost" onclick="generateChapter()" style="margin-left:8px;">Write Free Chapter</button>
+    `;
+  }
+
+  return `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header">
+        <h3 class="card-title">Branching Story Graph</h3>
+        <span class="badge badge-purple">Interactive</span>
+      </div>
+      <p style="color:var(--text-muted);margin-bottom:12px;">True choices with persistent flags, consequences, and multiple endings.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+        <span class="badge badge-gold">Node: ${node.id}</span>
+        <span class="badge badge-blue">Endings found: ${endings.length}</span>
+        <span class="badge badge-green">Flags: ${flags.length}</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:12px;">${node.title}</h3>
+      <div class="ai-output story-enhanced" style="margin-top:0;">${node.text}</div>
+      <div style="margin-top:18px;">${choicesHtml}</div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Start Another Arc</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="startArc('start')">Messenger Arc</button>
+        <button class="btn-ghost" onclick="startArc('flame_start')">Flame War Arc</button>
+        <button class="btn-ghost" onclick="startArc('academy_start')">Academy Arc</button>
+        <button class="btn-ghost" onclick="startArc('hunt_start')">Ancient Hunt Arc</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Visual Branch Graph</h3>
+      ${window.DaoGraph ? window.DaoGraph.render(state.branch.visitedNodes || ["start"], state.branch.current, state.branch.history || []) : ""}
+      <p style="color:var(--text-dim);font-size:0.82rem;margin-top:8px;">Gold node = current. Path flows left to right.</p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Flag-Unlocked Special Chapters</h3>
+      <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:10px;">Certain flags unlock special free-story chapters.</p>
+      <button class="btn-primary" onclick="writeSpecialFlagChapter()">✍️ Write Special Chapter From Flags</button>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title" style="margin-bottom:10px;">Branch Memory</h3>
+      <p style="color:var(--text-muted);font-size:0.9rem;"><strong>Path:</strong> ${(state.branch.history || []).join(" → ") || "start"}</p>
+      <p style="color:var(--text-muted);font-size:0.9rem;margin-top:8px;"><strong>Flags:</strong> ${flags.join(", ") || "none yet"}</p>
+      <p style="color:var(--text-muted);font-size:0.9rem;margin-top:8px;"><strong>Completed endings:</strong> ${endings.join(", ") || "none yet"}</p>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-ghost" onclick="resetBranchGraph()">Reset Branch Graph</button>
+        <button class="btn-ghost" onclick="switchView('story')">Free Story Generator</button>
+      </div>
+    </div>
+  `;
+}
+
+function pickBranchChoice(choiceId) {
+  ensureBranchState();
+  const node = STORY_GRAPH[state.branch.current];
+  if (!node || !node.choices) return;
+  const choice = node.choices.find(c => c.id === choiceId);
+  if (!choice) return;
+
+  applyBranchEffects(choice.effects || {});
+  state.branch.history.push(choice.id);
+  state.branch.current = choice.next;
+  if (!state.branch.visitedNodes) state.branch.visitedNodes = ["start"];
+  if (!state.branch.visitedNodes.includes(choice.next)) state.branch.visitedNodes.push(choice.next);
+
+  const next = STORY_GRAPH[choice.next];
+  if (next && next.ending) {
+    applyBranchEffects(next.reward || {});
+    if (!state.branch.completedEndings.includes(next.id)) state.branch.completedEndings.push(next.id);
+    // also write a normal chapter log of the ending
+    state.storyChapters.push({
+      title: next.title,
+      content: next.text + "\\n\\n[Flags: " + Object.keys(state.branch.flags).filter(k => state.branch.flags[k]).join(", ") + "]"
+    });
+    showToast("Ending reached: " + next.title);
+  } else {
+    showToast("Path chosen: " + choice.label);
+  }
+  saveState();
+  switchView("branch");
+}
+
+function resetBranchGraph() {
+  state.branch = { current: "start", history: [], flags: {}, completedEndings: (state.branch && state.branch.completedEndings) || [] };
+  saveState();
+  switchView("branch");
+  showToast("New branching arc started (endings memory kept)");
+}
+
+
+
+function startArc(nodeId) {
+  ensureBranchState();
+  if (!STORY_GRAPH[nodeId]) { showToast("Arc not found"); return; }
+  state.branch.current = nodeId;
+  state.branch.history = [];
+  if (!state.branch.visitedNodes) state.branch.visitedNodes = [];
+  if (!state.branch.visitedNodes.includes(nodeId)) state.branch.visitedNodes.push(nodeId);
+  saveState();
+  switchView("branch");
+  showToast("Started arc at " + nodeId);
+}
+
+function writeSpecialFlagChapter() {
+  ensureBranchState();
+  const flags = state.branch.flags || {};
+  const char = getActiveChar() || { name: "Unknown Cultivator", star: "?", realm: "?", talent: "?" };
+  const specials = [];
+  if (flags.saved_messenger) specials.push("Because you once saved a dying messenger, a hidden contact now risks exposure to repay that debt.");
+  if (flags.stole_slip) specials.push("The stolen jade slip still stains your fate; hunters read old traces in new cities.");
+  if (flags.knows_truth) specials.push("Knowing the remnant's truth isolates you — ignorance would have been safer.");
+  if (flags.flame_war_victor || flags.claimed_flame_attempt) specials.push("Your name is spoken near Heavenly Flame affairs with caution and greed.");
+  if (flags.academy_top || flags.academy_merit) specials.push("Academy circles still debate your rise, polishing and poisoning your reputation at once.");
+  if (flags.hunt_revenge || flags.hunt_fugitive) specials.push("Ancient Clan pressure taught you exile's curriculum: silence, speed, and long memory.");
+  if (flags.ending_scheme || flags.double_sell) specials.push("Those who profit from chaos eventually meet accountants with swords.");
+  if (flags.ending_reject || flags.true_renunciation) specials.push("Having rejected baited destinies, you walk slower paths with denser foundations.");
+  if (!specials.length) {
+    showToast("No special flags yet — play branching arcs first");
+    return;
+  }
+  const text = specials.join("\\n\\n") + "\\n\\n" + char.name + ", still walking the continent as " + (char.star||"") + " " + (char.realm||"") + ", feels these old choices tighten into new events.";
+  state.storyChapters.push({
+    title: "Special: Echoes of Chosen Paths",
+    content: text
+  });
+  saveState();
+  switchView("story");
+  showToast("Special flag chapter written");
+}
+
+
+
+// ===== THIRD WAVE ALL-30 =====
+
+function ensureWave3() {
+  if (!state.calendar) state.calendar = { month: 1, year: 1, weather: "Clear" };
+  if (!state.regionControl) state.regionControl = {
+    "Outerland": "Scattered Clans",
+    "Innerland": "Major Sects",
+    "Mainland": "Empire Coalition",
+    "Central Land": "Ancient Clans"
+  };
+  if (!state.globalThreat) state.globalThreat = 1;
+  if (!state.techLoadout) state.techLoadout = { active: null, passive: null };
+  if (!state.battleReplays) state.battleReplays = [];
+  if (!state.artifacts) state.artifacts = [];
+}
+
+function advanceCalendar() {
+  ensureWave3();
+  state.calendar.month += 1;
+  if (state.calendar.month > 12) {
+    state.calendar.month = 1;
+    state.calendar.year += 1;
+  }
+  const weathers = ["Clear", "Flame Winds", "Soul Mist", "Thunder Monsoon", "Drought"];
+  state.calendar.weather = weathers[Math.floor(Math.random() * weathers.length)];
+  // monthly event
+  const monthly = [
+    "A regional tournament registration opens.",
+    "Beast activity rises along trade roads.",
+    "Alchemy ingredient prices spike.",
+    "An empire tax decree angers independent cultivators.",
+    "Rumors of a Dou Saint remnant intensify."
+  ];
+  const ev = monthly[Math.floor(Math.random() * monthly.length)];
+  state.events = state.events || [];
+  state.events.push({ title: `Month ${state.calendar.month}, Year ${state.calendar.year}`, desc: ev + " Weather: " + state.calendar.weather });
+  if (state.calendar.month % 3 === 0) state.globalThreat = Math.min(10, (state.globalThreat || 1) + 1);
+  saveState();
+  showToast(`Calendar: Y${state.calendar.year} M${state.calendar.month} · ${state.calendar.weather} · Threat ${state.globalThreat}`);
+  switchView("world");
+}
+
+function setLoadout(type) {
+  const char = getActiveChar();
+  if (!char || !char.technique) { showToast("Learn a technique first"); return; }
+  ensureWave3();
+  if (type === "active") state.techLoadout.active = char.technique;
+  else state.techLoadout.passive = char.technique;
+  saveState();
+  showToast(type + " loadout: " + char.technique);
+}
+
+function fuseFlameRisk() {
+  if (!state.flames || state.flames.length < 2) { showToast("Need 2+ flames discovered"); return; }
+  const char = getActiveChar();
+  if (!char) return;
+  if (Math.random() > 0.55) {
+    const f = state.flames[state.flames.length - 1];
+    char.boundFlame = (char.boundFlame ? char.boundFlame + " + " : "") + f.name;
+    char.douQi = Math.floor((char.douQi || 100) * 1.15);
+    showToast("Flame fusion succeeded");
+  } else {
+    applyInjury(char, 2);
+    showToast("Fusion failed. Severe backlash!");
+  }
+  saveState();
+  switchView("flames");
+}
+
+function tribulationAttempt() {
+  const char = getActiveChar();
+  if (!char) return;
+  const rankIndex = DOU_QI_RANKS.findIndex(r => r.name === char.realm);
+  if (rankIndex < 6) { showToast("Tribulation events matter most from Dou Zong upward. Attempt normal breakthrough for now."); return; }
+  ensureWave3();
+  const need = { herbs: 5, cores: 2, ores: 3 };
+  state.resources = state.resources || { herbs: 0, cores: 0, ores: 0 };
+  if (state.resources.herbs < need.herbs || state.resources.cores < need.cores) {
+    showToast("Tribulation preparation requires herbs>=5 and cores>=2 (Gather Resources)");
+    return;
+  }
+  state.resources.herbs -= 5;
+  state.resources.cores -= 2;
+  const success = Math.random() < (0.35 + (char.foundation || 0) / 200);
+  let text = "Heavenly tribulation clouds gather above " + char.name + ". ";
+  if (success) {
+    text += "Lightning tempers the body. The realm solidifies.";
+    char.foundation = Math.min(100, (char.foundation || 40) + 5);
+    char.douQi = Math.floor((char.douQi || 100) * 1.2);
+    char.experience = Math.min(100, (char.experience || 20) + 10);
+  } else {
+    text += "The tribulation wounds the meridians. Survival is victory enough.";
+    applyInjury(char, 3);
+  }
+  state.storyChapters.push({ title: "Tribulation: " + char.name, content: text });
+  saveState();
+  showToast(success ? "Tribulation survived" : "Tribulation nearly fatal");
+  switchView("story");
+}
+
+function ageSeclusion() {
+  const char = getActiveChar();
+  if (!char) return;
+  const years = randInt(1, 5);
+  char.age = (char.age || 20) + years;
+  char.douQi = (char.douQi || 100) + years * randInt(100, 250);
+  char.foundation = Math.min(100, (char.foundation || 40) + years);
+  ensureWave3();
+  state.calendar.year += years;
+  saveState();
+  showToast(`Seclusion for ${years} years. Age now ${char.age}`);
+  switchView("cultivation");
+}
+
+function travelAmbush() {
+  const char = getActiveChar();
+  const region = state.currentRegion || "Outerland";
+  const danger = { Outerland: 0.2, Innerland: 0.35, Mainland: 0.5, "Central Land": 0.7 }[region] || 0.3;
+  ensureWave3();
+  if (Math.random() > danger) {
+    showToast("Travel is tense but safe.");
+    return;
+  }
+  const won = Math.random() > 0.45;
+  const note = won ? "Ambush defeated on the road." : "Ambush forced a bloody retreat.";
+  if (char) {
+    if (won) {
+      char.experience = Math.min(100, (char.experience || 20) + randInt(3, 8));
+      if (!char.inventory) char.inventory = [];
+      char.inventory.push(generateItem());
+    } else applyInjury(char, 1);
+  }
+  state.battleReplays.push({ note, region, t: Date.now() });
+  state.events.push({ title: "Travel Ambush", desc: note + " (" + region + ")" });
+  saveState();
+  showToast(note);
+}
+
+function refineArtifact() {
+  const char = getActiveChar();
+  if (!char) return;
+  ensureWave3();
+  state.resources = state.resources || { herbs: 0, cores: 0, ores: 0 };
+  if ((state.resources.ores || 0) < 4) { showToast("Need 4 ores to refine an artifact"); return; }
+  state.resources.ores -= 4;
+  const art = { name: generateName().split(" ")[0] + " Artifact", rank: ["Rare", "Precious", "Legendary"][Math.floor(Math.random()*3)], durability: randInt(40, 100) };
+  state.artifacts.push(art);
+  if (!char.inventory) char.inventory = [];
+  char.inventory.push({ name: art.name, type: "Treasure", rank: art.rank, description: "Durability " + art.durability });
+  saveState();
+  showToast("Refined " + art.name);
+}
+
+function summonBeastAssist() {
+  if (!state.beasts || !state.beasts.length) { showToast("Generate a magical beast first"); return; }
+  const char = getActiveChar();
+  if (!char) return;
+  char.beastAssist = state.beasts[state.beasts.length - 1].species;
+  char.experience = Math.min(100, (char.experience || 20) + 2);
+  saveState();
+  showToast("Beast assist set: " + char.beastAssist);
+}
+
+function influenceMeter() {
+  const sects = state.sects || [];
+  if (!sects.length) { showToast("Create a sect first"); return; }
+  sects.forEach(s => {
+    s.influence = Math.min(100, (s.influence || randInt(10, 40)) + randInt(-5, 12));
+  });
+  saveState();
+  showToast("Faction influence recalculated");
+  switchView("factions");
+}
+
+function betrayalMission() {
+  const char = getActiveChar();
+  if (!char || !char.affiliations || !char.affiliations.length) { showToast("Join a faction first"); return; }
+  gainContribution(25);
+  char.wanted = Math.min(5, (char.wanted || 0) + 1);
+  char.experience = Math.min(100, (char.experience || 20) + 6);
+  state.events = state.events || [];
+  state.events.push({ title: "Betrayal Mission", desc: char.name + " completed a double-sided mission. Rewards high, trust low." });
+  saveState();
+  showToast("Betrayal mission complete (+contribution, +wanted)");
+}
+
+function elderTrial() {
+  const char = getActiveChar();
+  if (!char) return;
+  if ((char.factionRank || "") !== "Elder Candidate" && (char.factionRank || "") !== "Core Disciple") {
+    showToast("Need Core Disciple or Elder Candidate rank");
+    return;
+  }
+  if (Math.random() > 0.5) {
+    char.factionRank = "Elder";
+    gainContribution(30);
+    showToast("Elder trial passed!");
+  } else {
+    applyInjury(char, 1);
+    showToast("Elder trial failed");
+  }
+  saveState();
+  switchView("character");
+}
+
+function breakTreaty() {
+  state.events = state.events || [];
+  state.events.push({ title: "Broken Treaty", desc: "A cross-faction treaty was broken. Border skirmishes intensify." });
+  state.globalThreat = Math.min(10, (state.globalThreat || 1) + 1);
+  ensureWave3();
+  saveState();
+  showToast("Treaty broken. Global threat rises.");
+}
+
+function shiftRegionControl() {
+  ensureWave3();
+  const regions = Object.keys(state.regionControl);
+  const r = regions[Math.floor(Math.random() * regions.length)];
+  const owners = ["Scattered Clans", "Major Sects", "Empire Coalition", "Ancient Clans", "Independent Alliance", "Beast Lords"];
+  state.regionControl[r] = owners[Math.floor(Math.random() * owners.length)];
+  state.events = state.events || [];
+  state.events.push({ title: "Region Control Shift", desc: r + " is now influenced by " + state.regionControl[r] });
+  saveState();
+  showToast(r + " → " + state.regionControl[r]);
+  switchView("map");
+}
+
+function guidedCampaignStep() {
+  ensureWave3();
+  if (!state.campaign) state.campaign = { step: 0 };
+  const steps = [
+    { msg: "Campaign 1/8: Create a world", view: "world" },
+    { msg: "Campaign 2/8: Create a Dou Zhe", view: "character" },
+    { msg: "Campaign 3/8: Train once", view: "cultivation" },
+    { msg: "Campaign 4/8: Learn a technique", view: "techniques" },
+    { msg: "Campaign 5/8: Travel on the map", view: "map" },
+    { msg: "Campaign 6/8: Generate 2 chapters", view: "story" },
+    { msg: "Campaign 7/8: Try branching story", view: "branch" },
+    { msg: "Campaign 8/8: Attempt breakthrough", view: "cultivation" }
+  ];
+  const i = state.campaign.step;
+  if (i >= steps.length) { showToast("Guided campaign complete. You are ready."); return; }
+  showToast(steps[i].msg);
+  state.campaign.step = i + 1;
+  saveState();
+  switchView(steps[i].view);
+}
+
+function elementalPreview(a, b) {
+  try {
+    const adv = getAttrAdvantage(a, b);
+    if (adv > 1) return a + " advantages over " + b;
+    if (adv < 1) return a + " is disadvantaged vs " + b;
+    return a + " vs " + b + " is neutral";
+  } catch (e) {
+    return "Elemental matrix ready";
+  }
+}
+
+function replayLastBattles() {
+  ensureWave3();
+  if (!state.battleReplays.length && !state.duelLog) {
+    showToast("No battle replays yet");
+    return;
+  }
+  const lines = (state.battleReplays || []).slice(-5).map(x => x.note + " @ " + (x.region || "?"));
+  const duels = (state.duelLog || []).slice(-5).map(d => d.winner + " beat " + d.loser);
+  alert("Battle Replays:\\n" + (lines.join("\\n") || "none") + "\\n\\nDuels:\\n" + (duels.join("\\n") || "none"));
+}
+
+
+
+// ===== WAVE 100: META SYSTEMS COVERING 100 IMPROVEMENTS =====
+
+function ensure100() {
+  if (!state.achievements) state.achievements = {};
+  if (!state.difficulty) state.difficulty = "Heavenly";
+  if (!state.worldSeed) state.worldSeed = Math.random().toString(36).slice(2, 10).toUpperCase();
+  if (!state.news) state.news = [];
+  if (!state.collections) state.collections = { flames: 0, beasts: 0, techniques: 0, endings: 0 };
+  if (!state.sectLaws) state.sectLaws = ["No betrayal of sect allies", "Contribute monthly", "Protect outer disciples"];
+  if (!state.chapterMode) state.chapterMode = "standard";
+  if (!state.prestige) state.prestige = 0;
+  if (!state.bookmarks) state.bookmarks = [];
+  const char = getActiveChar && getActiveChar();
+  if (char) {
+    if (char.body == null) char.body = randInt ? randInt(30, 70) : 50;
+    if (char.soul == null) char.soul = randInt ? randInt(30, 70) : 50;
+    if (char.qiTrack == null) char.qiTrack = randInt ? randInt(30, 70) : 50;
+  }
+}
+
+function unlockAch(id, name) {
+  ensure100();
+  if (state.achievements[id]) return;
+  state.achievements[id] = { name, t: Date.now() };
+  showToast("Achievement: " + name);
+}
+
+function pushNews(title, desc) {
+  ensure100();
+  state.news.unshift({ title, desc, t: Date.now() });
+  if (state.news.length > 40) state.news.pop();
+}
+
+function setDifficulty(d) {
+  ensure100();
+  state.difficulty = d;
+  saveState();
+  showToast("Difficulty: " + d);
+}
+
+function setChapterMode(m) {
+  ensure100();
+  state.chapterMode = m;
+  saveState();
+  showToast("Chapter mode: " + m);
+}
+
+function trainTrack(track) {
+  const char = getActiveChar();
+  if (!char) return;
+  ensure100();
+  if (char.body == null) char.body = 50;
+  if (char.soul == null) char.soul = 50;
+  if (char.qiTrack == null) char.qiTrack = 50;
+  const gain = state.difficulty === "Hell" ? randInt(1, 3) : state.difficulty === "Mortal" ? randInt(3, 7) : randInt(2, 5);
+  char[track] = Math.min(100, (char[track] || 50) + gain);
+  char.douQi = (char.douQi || 100) + gain * 10;
+  unlockAch("train_" + track, "Tempered " + track);
+  saveState();
+  switchView("cultivation");
+  showToast(track + " +" + gain);
+}
+
+function addSectLaw() {
+  ensure100();
+  const laws = ["Silence on inner affairs", "Hunt traitors", "Tribute to elders", "No private Heavenly Flames", "Mandatory arena spars"];
+  const law = laws[Math.floor(Math.random() * laws.length)];
+  if (!state.sectLaws.includes(law)) state.sectLaws.push(law);
+  pushNews("Sect Law", "A new law was declared: " + law);
+  saveState();
+  showToast("Law added: " + law);
+}
+
+function breakSectLaw() {
+  ensure100();
+  const char = getActiveChar();
+  if (!state.sectLaws.length) return showToast("No laws");
+  const law = state.sectLaws[Math.floor(Math.random() * state.sectLaws.length)];
+  if (char) char.wanted = Math.min(5, (char.wanted || 0) + 1);
+  pushNews("Law Broken", (char ? char.name : "Someone") + " violated: " + law);
+  saveState();
+  showToast("Broke law: " + law);
+}
+
+function bookmarkChapter() {
+  if (!state.storyChapters.length) return showToast("No chapters");
+  ensure100();
+  const ch = state.storyChapters[state.storyChapters.length - 1];
+  state.bookmarks.push(ch.title);
+  saveState();
+  showToast("Bookmarked: " + ch.title);
+}
+
+function rewriteChapter() {
+  if (!state.storyChapters.length) return showToast("No chapters");
+  generateChapter();
+  unlockAch("rewrite", "Story Rewrite");
+}
+
+function canonLock() {
+  if (!state.storyChapters.length) return showToast("No chapters");
+  const ch = state.storyChapters[state.storyChapters.length - 1];
+  ch.canon = true;
+  saveState();
+  showToast("Canon locked: " + ch.title);
+}
+
+function showEndingGallery() {
+  ensureBranchState && ensureBranchState();
+  const ends = (state.branch && state.branch.completedEndings) || [];
+  const all = ["ending_solo_glory","ending_alliance","ending_scheme","ending_sect","ending_reject"];
+  const lines = all.map(e => (ends.includes(e) ? "✓ " : "□ ") + e);
+  alert("Ending Gallery (" + ends.length + "/" + all.length + ")\\n\\n" + lines.join("\\n"));
+  unlockAch("gallery", "Viewed Ending Gallery");
+}
+
+function exportBranchPath() {
+  ensureBranchState && ensureBranchState();
+  const path = ((state.branch && state.branch.history) || []).join(" -> ") || "start";
+  const visited = ((state.branch && state.branch.visitedNodes) || ["start"]).join(", ");
+  const text = "BRANCH PATH\\n" + path + "\\n\\nVISITED\\n" + visited;
+  const blob = new Blob([text], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "branch-path.txt";
+  a.click();
+  showToast("Branch path exported");
+}
+
+function shareSeed() {
+  ensure100();
+  alert("World Seed: " + state.worldSeed + "\\n\\nShare this seed code with others as a world tag.");
+}
+
+function prestigeReset() {
+  const char = getActiveChar();
+  if (!char) return;
+  if (!confirm("Prestige reset this character? Keep name/talent title bonuses, reset realm to Dou Zhe.")) return;
+  ensure100();
+  state.prestige += 1;
+  char.realm = "Dou Zhe";
+  char.star = "1-Star";
+  char.douQi = 100;
+  char.foundation = 40;
+  char.prestigeTitle = "Legacy " + state.prestige;
+  unlockAch("prestige", "Prestige Reset");
+  saveState();
+  switchView("character");
+  showToast("Prestige " + state.prestige);
+}
+
+function collectionSync() {
+  ensure100();
+  state.collections.flames = (state.flames || []).length;
+  state.collections.beasts = (state.beasts || []).length;
+  state.collections.techniques = (state.techniques || []).length;
+  state.collections.endings = ((state.branch && state.branch.completedEndings) || []).length;
+  if (state.collections.flames >= 3) unlockAch("flames3", "Flame Collector");
+  if (state.collections.techniques >= 5) unlockAch("tech5", "Technique Hoarder");
+  if ((state.storyChapters || []).length >= 10) unlockAch("ch10", "Ten Chapters");
+  saveState();
+  showToast("Collections synced");
+}
+
+function dailyChallenge() {
+  const challenges = [
+    "Win one battle",
+    "Write 2 chapters",
+    "Travel to another region",
+    "Complete a faction mission",
+    "Gather resources once",
+    "Finish one branching ending"
+  ];
+  const c0 = challenges[Math.floor(Math.random() * challenges.length)];
+  ensure100();
+  state.dailyChallenge = c0;
+  pushNews("Daily Challenge", c0);
+  saveState();
+  showToast("Daily: " + c0);
+}
+
+function worldBossPing() {
+  ensure100();
+  state.globalThreat = Math.min(10, (state.globalThreat || 1) + 1);
+  pushNews("World Boss", "A roaming catastrophic aura appeared. Threat now " + state.globalThreat);
+  const char = getActiveChar();
+  if (char && Math.random() > 0.5) {
+    char.experience = Math.min(100, (char.experience || 20) + 5);
+    showToast("You observed the boss aura and gained insight");
+  } else showToast("World boss pressure intensifies");
+  saveState();
+}
+
+function cityHub() {
+  ensure100();
+  const services = ["Shop", "Clinic", "Arena Desk", "Mission Board", "Tea House Intel"];
+  const pick = services[Math.floor(Math.random() * services.length)];
+  const char = getActiveChar();
+  if (pick === "Clinic" && char) {
+    char.injured = Math.max(0, (char.injured || 0) - 1);
+    showToast("City Clinic: recovered slightly");
+  } else if (pick === "Shop" && char) {
+    if (!char.inventory) char.inventory = [];
+    char.inventory.push(generateItem());
+    showToast("City Shop: bought an item");
+  } else if (pick === "Arena Desk") {
+    showToast("Arena Desk: season board updated");
+  } else if (pick === "Mission Board") {
+    gainContribution(5);
+    showToast("Mission Board: minor contribution");
+  } else {
+    showToast("Tea House: rumors heard");
+    pushNews("Tea House", "A rumor about Ancient Clan movement spreads.");
+  }
+  saveState();
+}
+
+function showcaseExport() {
+  ensure100();
+  collectionSync();
+  const char = getActiveChar();
+  let t = "HEAVENLY DAO SHOWCASE\\nSeed: " + state.worldSeed + "\\nDifficulty: " + state.difficulty + "\\n";
+  t += "Chapters: " + ((state.storyChapters || []).length) + "\\n";
+  t += "Achievements: " + Object.keys(state.achievements || {}).length + "\\n";
+  if (char) t += "Hero: " + char.name + " | " + char.star + " " + char.realm + "\\n";
+  t += "Collections: " + JSON.stringify(state.collections) + "\\n";
+  t += "Threat: " + (state.globalThreat || 1) + "\\n";
+  const blob = new Blob([t], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dao-showcase.txt";
+  a.click();
+  unlockAch("showcase", "Showcase Exported");
+}
+
+function renderAchievements() {
+  ensure100();
+  const list = Object.values(state.achievements || {});
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header"><h3 class="card-title">Achievements & Meta</h3></div>
+      <p style="color:var(--text-muted);">Seed <strong>${state.worldSeed}</strong> · Difficulty <strong>${state.difficulty}</strong> · Prestige <strong>${state.prestige||0}</strong></p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+        <button class="btn-ghost" onclick="setDifficulty('Mortal')">Mortal</button>
+        <button class="btn-ghost" onclick="setDifficulty('Heavenly')">Heavenly</button>
+        <button class="btn-ghost" onclick="setDifficulty('Hell')">Hell</button>
+        <button class="btn-ghost" onclick="setChapterMode('short')">Short Chapters</button>
+        <button class="btn-ghost" onclick="setChapterMode('standard')">Standard</button>
+        <button class="btn-ghost" onclick="setChapterMode('epic')">Epic</button>
+        <button class="btn-ghost" onclick="shareSeed()">Share Seed</button>
+        <button class="btn-ghost" onclick="showEndingGallery()">Ending Gallery</button>
+        <button class="btn-ghost" onclick="exportBranchPath()">Export Branch Path</button>
+        <button class="btn-ghost" onclick="collectionSync()">Sync Collections</button>
+        <button class="btn-ghost" onclick="dailyChallenge()">Daily Challenge</button>
+        <button class="btn-ghost" onclick="showcaseExport()">Showcase Export</button>
+        <button class="btn-ghost" onclick="prestigeReset()">Prestige Reset</button>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Achievements (${list.length})</h3>
+      ${list.length ? list.map(a => `<div style="padding:8px 0;border-bottom:1px solid var(--border);">${a.name}</div>`).join("") : "<p style=\\"color:var(--text-dim)\\">None yet</p>"}
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Continent News</h3>
+      ${(state.news||[]).slice(0,12).map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--gold);">${n.title}</strong><div style="color:var(--text-muted);font-size:0.88rem;">${n.desc}</div></div>`).join("") || "<p style=\\"color:var(--text-dim)\\">No news</p>"}
+    </div>
+    <div class="card">
+      <h3 class="card-title" style="margin-bottom:10px;">Sect Laws</h3>
+      <ul style="color:var(--text-muted);padding-left:18px;">${(state.sectLaws||[]).map(l=>`<li>${l}</li>`).join("")}</ul>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-ghost" onclick="addSectLaw()">Add Law</button>
+        <button class="btn-ghost" onclick="breakSectLaw()">Break a Law</button>
+      </div>
+    </div>
+  `;
+}
+
+
+
+// ===== QUALITY WAVE (100 improvements layer) =====
+
+const SAVE_VERSION = 3;
+let undoStack = [];
+let searchQuery = "";
+
+function migrateSave(raw) {
+  if (!raw || typeof raw !== "object") raw = {};
+  raw.version = SAVE_VERSION;
+  const arrays = ["characters","techniques","flames","beasts","sects","clans","empires","academies","auctions","pillTowers","events","pills","storyChapters","news","bookmarks","battleReplays","artifacts","sectLaws"];
+  arrays.forEach(k => { if (!Array.isArray(raw[k])) raw[k] = []; });
+  if (!raw.meta) raw.meta = { tone: "heroic", season: "Calm Season", danger: 1, tutorialStep: 0 };
+  if (!raw.resources) raw.resources = { herbs: 0, cores: 0, ores: 0 };
+  if (!raw.achievements) raw.achievements = {};
+  if (!raw.branch) raw.branch = { current: "start", history: [], flags: {}, completedEndings: [], visitedNodes: ["start"] };
+  if (!raw.currentRegion) raw.currentRegion = "Outerland";
+  if (!raw.difficulty) raw.difficulty = "Heavenly";
+  if (!raw.worldSeed) raw.worldSeed = Math.random().toString(36).slice(2, 10).toUpperCase();
+  if (!raw.stats) raw.stats = { battles: 0, chapters: 0, chapters: 0, travels: 0, breakthroughs: 0 };
+  if (!raw.featureFlags) raw.featureFlags = { hardModePreview: true, experimentalSearch: true };
+  return raw;
+}
+
+function pushUndo() {
+  try {
+    undoStack.push(JSON.stringify(state));
+    if (undoStack.length > 15) undoStack.shift();
+  } catch (e) {}
+}
+
+function undoLast() {
+  if (state.lineage && state.lineage.ironman) return showToast("Ironman lineage forbids undo");
+  if (!undoStack.length) return showToast("Nothing to undo");
+  try {
+    state = migrateSave(JSON.parse(undoStack.pop()));
+    localStorage.setItem("heavenlyDaoState", JSON.stringify(state));
+    switchView("dashboard");
+    showToast("Undid last major state snapshot");
+  } catch (e) {
+    showToast("Undo failed");
+  }
+}
+
+function safeSaveState() {
+  pushUndo();
+  state.version = SAVE_VERSION;
+  localStorage.setItem("heavenlyDaoState", JSON.stringify(state));
+}
+
+// wrap saveState usage: redefine saveState if exists later - patch after
+function exportFullSave() {
+  const data = JSON.stringify(migrateSave(state), null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "heavenly-dao-save.json";
+  a.click();
+  showToast("Full save exported");
+}
+
+function importFullSave() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json,.json";
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const raw = JSON.parse(text);
+      state = migrateSave(raw);
+      localStorage.setItem("heavenlyDaoState", JSON.stringify(state));
+      switchView("dashboard");
+      showToast("Save imported");
+    } catch (e) {
+      showToast("Import failed");
+    }
+  };
+  input.click();
+}
+
+function globalSearch(q) {
+  searchQuery = (q || "").toLowerCase().trim();
+  if (!searchQuery) return showToast("Enter a search term");
+  const hits = [];
+  (state.characters || []).forEach(c => { if ((c.name||"").toLowerCase().includes(searchQuery)) hits.push("Character: " + c.name); });
+  (state.techniques || []).forEach(t => { if ((t.name||"").toLowerCase().includes(searchQuery)) hits.push("Technique: " + t.name); });
+  (state.flames || []).forEach(f => { if ((f.name||"").toLowerCase().includes(searchQuery)) hits.push("Flame: " + f.name); });
+  (state.storyChapters || []).forEach(ch => { if ((ch.title||"").toLowerCase().includes(searchQuery) || (ch.content||"").toLowerCase().includes(searchQuery)) hits.push("Chapter: " + ch.title); });
+  (state.sects || []).forEach(s => { if ((s.name||"").toLowerCase().includes(searchQuery)) hits.push("Sect: " + s.name); });
+  alert((hits.slice(0, 30).join("\\n") || "No hits") + (hits.length > 30 ? "\\n..." : ""));
+}
+
+function renderStats() {
+  const s = state.stats || { battles: 0, chapters: 0, chapters: 0, travels: 0, breakthroughs: 0 };
+  const ach = Object.keys(state.achievements || {}).length;
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header"><h3 class="card-title">Statistics</h3></div>
+      <div class="grid-4">
+        <div class="stat-box"><div class="label">Battles</div><div class="value">${s.battles||0}</div></div>
+        <div class="stat-box"><div class="label">Chapters</div><div class="value">${(state.storyChapters||[]).length}</div></div>
+        <div class="stat-box"><div class="label">Endings</div><div class="value">${((state.branch&&state.branch.completedEndings)||[]).length}</div></div>
+        <div class="stat-box"><div class="label">Achievements</div><div class="value">${ach}</div></div>
+        <div class="stat-box"><div class="label">Travels</div><div class="value">${s.travels||0}</div></div>
+        <div class="stat-box"><div class="label">Breakthroughs</div><div class="value">${s.breakthroughs||0}</div></div>
+        <div class="stat-box"><div class="label">Wins</div><div class="value">${s.wins||0}</div></div>
+        <div class="stat-box"><div class="label">Seed</div><div class="value" style="font-size:0.9rem;">${state.worldSeed||"—"}</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="card-title" style="margin-bottom:10px;">Quality Tools</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="undoLast()">↩️ Undo</button>
+        <button class="btn-ghost" onclick="exportFullSave()">📤 Export Save</button>
+        <button class="btn-ghost" onclick="importFullSave()">📥 Import Save</button>
+        <button class="btn-ghost" onclick="runGlobalSearchPrompt()">🔎 Global Search</button>
+        <button class="btn-ghost" onclick="showRelationshipGraph()">💞 Relationship Graph</button>
+        <button class="btn-ghost" onclick="simulateChoicePreview()">🔮 Choice Preview</button>
+        <button class="btn-ghost" onclick="toggleHardIronman()">☠️ Toggle Ironman</button>
+        <button class="btn-ghost" onclick="contentBrowser()">📚 Content Browser</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;">Save version: ${state.version||SAVE_VERSION} · Ironman: ${(state.featureFlags&&state.featureFlags.ironman)?"ON":"OFF"}</p>
+    </div>
+  `;
+}
+
+function runGlobalSearchPrompt() {
+  const q = prompt("Search characters, techniques, flames, chapters, sects:");
+  if (q != null) globalSearch(q);
+}
+
+function showRelationshipGraph() {
+  const char = getActiveChar();
+  if (!char) return showToast("Select a character");
+  ensureCast && ensureCast(char);
+  const rival = (char.storyMemory && char.storyMemory.rival && char.storyMemory.rival.name) || "None";
+  const stage = char.rivalStage || "strangers";
+  const aff = (char.affiliations||[]).map(a=>a.name).join(", ") || "None";
+  const cast = char.cast || {};
+  alert("RELATIONSHIP GRAPH\\n\\nSelf: "+char.name+"\\nRival: "+rival+" ("+stage+")\\nMaster: "+(cast.master||"—")+"\\nSibling: "+(cast.sibling||"—")+"\\nBetrayer: "+(cast.betrayer||"—")+"\\nAffiliations: "+aff);
+}
+
+function simulateChoicePreview() {
+  alert("Choice Preview (example odds)\\n\\nFight: +EXP, 30% injury\\nScheme: +comprehension, +wanted risk\\nEndure: +foundation, slower plot\\n\\nIn Branching Story, read effects on each button path carefully.");
+}
+
+function toggleHardIronman() {
+  if (!state.featureFlags) state.featureFlags = {};
+  state.featureFlags.ironman = !state.featureFlags.ironman;
+  saveState();
+  showToast("Ironman " + (state.featureFlags.ironman ? "ON (no undo recommended)" : "OFF"));
+}
+
+function contentBrowser() {
+  const lines = [];
+  lines.push("Characters: " + (state.characters||[]).map(c=>c.name).join(", "));
+  lines.push("Flames: " + (state.flames||[]).map(f=>f.name).join(", "));
+  lines.push("Techniques: " + (state.techniques||[]).slice(0,12).map(t=>t.name).join(", "));
+  lines.push("Sects: " + (state.sects||[]).map(s=>s.name).join(", "));
+  alert(lines.join("\\n\\n") || "Empty world");
+}
+
+function bumpStat(key, n) {
+  if (!state.stats) state.stats = { battles: 0, wins: 0, chapters: 0, travels: 0, breakthroughs: 0 };
+  state.stats[key] = (state.stats[key] || 0) + (n || 1);
+}
+
+
+
+// ===== CONTINUOUS LINEAGE SIMULATION =====
+
+function ensureSim() {
+  if (!state.sim) {
+    state.sim = {
+      running: false,
+      speed: 1,
+      tick: 0,
+      year: 1,
+      month: 1,
+      log: [],
+      lineageAlive: true,
+      extinctReason: null,
+      autoStory: true
+    };
+  }
+  if (!state.lineage) {
+    state.lineage = {
+      founderId: null,
+      generations: 1,
+      heirs: [],
+      dead: [],
+      bloodName: null
+    };
+  }
+}
+
+function simLog(msg) {
+  ensureSim();
+  state.sim.log.unshift({ t: state.sim.tick, year: state.sim.year, month: state.sim.month, msg });
+  if (state.sim.log.length > 80) state.sim.log.pop();
+}
+
+function getLineageCharacters() {
+  ensureSim();
+  const founderId = state.lineage.founderId;
+  return (state.characters || []).filter(c => c.alive !== false && (c.id === founderId || c.lineageId === founderId || c.isHeir));
+}
+
+function markFounder() {
+  ensureSim();
+  ensureWealth();
+  let char = getActiveChar();
+  if (!char && state.characters && state.characters.length) {
+    char = state.characters[0];
+    state.currentCharacterId = char.id;
+  }
+  if (!char) return showToast("Create/select a character to become lineage founder");
+  state.lineage.founderId = char.id;
+  state.lineage.bloodName = char.name.split(" ").slice(-1)[0] || char.name;
+  char.isFounder = true;
+  char.alive = true;
+  char.generation = 1;
+  state.sim.lineageAlive = true;
+  state.sim.extinctReason = null;
+  state.sim.year = state.sim.year || 1;
+  state.sim.month = state.sim.month || 1;
+  // founding grant
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + 50;
+  state.clanWealth.renown = Math.max(state.clanWealth.renown || 1, 2);
+  simLog(char.name + " founded the lineage (" + state.lineage.bloodName + " blood). Vault seeded.");
+  try { pushNews("Founding", char.name + " established the " + state.lineage.bloodName + " lineage."); } catch(e) {}
+  saveState();
+  showToast("Lineage founder set: " + char.name);
+  switchView("simulation");
+}
+
+function birthHeir(parent) {
+  ensureSim();
+  if (!parent || parent.alive === false) return null;
+  const child = generateCharacter("Dou Zhe");
+  child.name = (child.name.split(" ")[0]) + " " + (state.lineage.bloodName || parent.name.split(" ").slice(-1)[0] || "Xiao");
+  child.age = randInt(14, 18);
+  child.alive = true;
+  child.isHeir = true;
+  child.lineageId = state.lineage.founderId || parent.id;
+  child.generation = (parent.generation || 1) + 1;
+  child.parentName = parent.name;
+  child.bloodline = parent.bloodline;
+  const talentPool = ["Ordinary","Good","Excellent","Genius","Monster"];
+  let tIdx = talentPool.indexOf(parent.talent);
+  if (tIdx < 0) tIdx = 1;
+  tIdx = Math.max(0, Math.min(4, tIdx + randInt(-1, 1)));
+  child.talent = talentPool[tIdx];
+  if (parent.boundFlame && Math.random() > 0.85) child.secrets = "Inherited a faint flame resonance from " + parent.name;
+  state.characters.push(child);
+  state.lineage.heirs.push(child.id);
+  state.lineage.generations = Math.max(state.lineage.generations || 1, child.generation);
+  simLog("Heir born: " + child.name + " (Gen " + child.generation + ") from " + parent.name);
+  try { pushNews("Heir", child.name + " of generation " + child.generation + " enters the clan."); } catch(e) {}
+  return child;
+}
+
+function killCharacter(char, reason) {
+  if (!char || char.alive === false) return;
+  char.alive = false;
+  char.deathReason = reason || "fell on the cultivation road";
+  char.deathYear = state.sim.year;
+  state.lineage.dead = state.lineage.dead || [];
+  state.lineage.dead.push({ name: char.name, reason: char.deathReason, year: state.sim.year, generation: char.generation || 1 });
+  simLog(char.name + " died: " + char.deathReason);
+  if (state.currentCharacterId === char.id) {
+    const living = getLineageCharacters();
+    state.currentCharacterId = living.length ? living[0].id : null;
+  }
+}
+
+function checkExtinction() {
+  ensureSim();
+  const living = getLineageCharacters();
+  if (!state.lineage.founderId) return false;
+  if (living.length === 0) {
+    state.sim.lineageAlive = false;
+    state.sim.running = false;
+    state.sim.extinctReason = "No living heirs remain. The lineage ends in year " + state.sim.year + ".";
+    simLog("LINEAGE EXTINCT — " + state.sim.extinctReason);
+    try { pushNews("Extinction", state.sim.extinctReason); } catch(e) {}
+    try {
+      const deadN = (state.lineage.dead || []).length;
+      const gen = state.lineage.generations || 1;
+      state.storyChapters.push({
+        title: "Epitaph: End of the " + (state.lineage.bloodName || "Blood") + " Line",
+        content: "In year " + state.sim.year + ", the last living carrier of the " + (state.lineage.bloodName || "lineage") + " name fell.\n\nGenerations endured: " + gen + ". Recorded deaths: " + deadN + ". Clan gold at extinction: " + ((state.clanWealth && state.clanWealth.gold) || 0) + ".\n\nThe Heavenly Dao did not eulogize them. Only the chronicle remains."
+      });
+    } catch(e) {}
+    showToast("Lineage extinct — epitaph written");
+    return true;
+  }
+  return false;
+}
+
+function simTick() {
+  ensureSim();
+  if (!state.sim.running || !state.sim.lineageAlive) return;
+  if (!state.world) { state.sim.running = false; showToast("Create a world first"); return; }
+  if (!state.lineage.founderId) { state.sim.running = false; showToast("Set a lineage founder first"); return; }
+
+  state.sim.tick += 1;
+  state.sim.month += 1;
+  if (state.sim.month > 12) {
+    state.sim.month = 1;
+    state.sim.year += 1;
+  }
+  if (state.calendar) {
+    state.calendar.month = state.sim.month;
+    state.calendar.year = state.sim.year;
+  }
+
+  const living = getLineageCharacters();
+  living.forEach(char => {
+    // age
+    if (state.sim.month === 1) char.age = (char.age || 16) + 1;
+
+    // passive cultivation
+    let renownBoost = 1 + Math.min(0.5, ((state.clanWealth && state.clanWealth.renown) || 1) * 0.03);
+    if ((state.lineageTraits||[]).includes("Genius Blood")) renownBoost *= 1.1;
+    if ((state.lineageTraits||[]).includes("Flame Affinity") && char.attribute === "Fire") renownBoost *= 1.08;
+    const gain = Math.floor(randInt(20, 90) * (state.sim.speed || 1) * renownBoost);
+    if ((state.lineageTraits||[]).includes("Short-Lived") && Math.random() > 0.995) { /* extra mortality handled below via age */ }
+    char.douQi = (char.douQi || 100) + gain;
+    char.experience = Math.min(100, (char.experience || 20) + randInt(0, 2));
+    if (Math.random() > 0.92) {
+      char.foundation = Math.min(100, (char.foundation || 40) + 1);
+    }
+
+    // random breakthrough attempt for active-ish members
+    if (Math.random() > 0.97) {
+      const ranks = DOU_QI_RANKS.map(r => r.name);
+      const idx = ranks.indexOf(char.realm);
+      const starIdx = STARS.indexOf(char.star);
+      if (Math.random() > 0.5 && starIdx < STARS.length - 1) {
+        char.star = STARS[Math.min(starIdx + 1, STARS.length - 1)];
+        simLog(char.name + " advanced to " + char.star + " " + char.realm);
+      } else if (idx >= 0 && idx < ranks.length - 1 && (char.foundation || 0) > 35 && Math.random() > 0.6) {
+        char.realm = ranks[idx + 1];
+        char.star = "1-Star";
+        simLog(char.name + " broke through to " + char.realm + "!");
+        try { bumpStat("breakthroughs", 1); } catch(e) {}
+      }
+    }
+
+    // death risks scale with age and threat
+    const threat = state.globalThreat || 1;
+    let deathChance = 0.002 + Math.max(0, (char.age || 20) - 80) * 0.01;
+    deathChance += threat * 0.0008;
+    if (char.injured) deathChance += char.injured * 0.01;
+    if ((state.lineageTraits||[]).includes("Short-Lived")) deathChance += 0.01;
+    if ((state.lineageTraits||[]).includes("Iron Constitution")) deathChance *= 0.7;
+    if (Math.random() < deathChance) {
+      const reasons = ["killed in a resource struggle", "failed tribulation", "ambushed while traveling", "old wounds claimed their life", "perished guarding the clan", "fallen in a flame contention", "betrayed during a secret deal"];
+      killCharacter(char, reasons[Math.floor(Math.random() * reasons.length)]);
+      try {
+        ensureWealth();
+        // inheritance: small vault gift from the dead
+        state.clanWealth.gold = (state.clanWealth.gold || 0) + randInt(5, 25);
+        state.clanWealth.renown = Math.max(1, (state.clanWealth.renown || 1));
+        simLog("Estate residues flowed into the clan vault.");
+      } catch(e) {}
+    }
+
+    // birth chance for adults (marriage increases odds)
+    if (char.alive !== false && (char.age || 0) >= 20 && (char.age || 0) <= 70) {
+      let birthNeed = 0.985;
+      if (char.spouse) birthNeed -= 0.025;
+      if (char.marriageBonus) birthNeed -= char.marriageBonus;
+      if ((state.clanWealth && state.clanWealth.renown || 0) > 5) birthNeed -= 0.01;
+      if (Math.random() > birthNeed) birthHeir(char);
+    }
+
+    // injury recovery
+    if (char.injured && Math.random() > 0.7) char.injured = Math.max(0, char.injured - 1);
+  });
+
+  // clan wealth yearly pulse
+  if (state.sim.month === 1) {
+    try { clanTradeYearly(); simLog("Clan vault yearly trade. Gold now " + (state.clanWealth && state.clanWealth.gold)); } catch(e) {}
+  }
+
+  // world drift
+  if (state.sim.month % 3 === 0) {
+    try { if (typeof advanceSeason === "function" && Math.random() > 0.7) { /* occasional season */ } } catch(e) {}
+    if (Math.random() > 0.6) {
+      state.globalThreat = Math.max(1, Math.min(10, (state.globalThreat || 1) + (Math.random() > 0.5 ? 1 : -1)));
+    }
+    const worldEvents = [
+      "A flame rumor stirred the markets.",
+      "Beast tide pressure rose at the borders.",
+      "An auction of contested treasures turned bloody.",
+      "Ancient Clan envoys passed through the region.",
+      "A quiet span — only small vendettas matured.",
+      "A traveling alchemist sold dubious rank pills.",
+      "Border cities raised mercenary bounties.",
+      "A secret realm flickered open for seven days.",
+      "Clanless geniuses formed a temporary alliance.",
+      "Tax collectors of an empire overreached and died for it."
+    ];
+    const ev = worldEvents[Math.floor(Math.random() * worldEvents.length)];
+    state.events = state.events || [];
+    state.events.push({ title: "Sim Y" + state.sim.year + " M" + state.sim.month, desc: ev });
+    simLog(ev);
+    try { if (offerSimChoice(ev)) { saveState(); switchView("simulation"); return; } } catch(e) {}
+    // wealth shock
+    try {
+      ensureWealth();
+      if (ev.includes("auction") || ev.includes("markets")) state.clanWealth.gold += randInt(-10, 30);
+      if (ev.includes("Beast tide")) state.clanWealth.gold = Math.max(0, (state.clanWealth.gold||0) - randInt(0, 15));
+      if (ev.includes("secret realm") && Math.random() > 0.6) state.clanWealth.cores = (state.clanWealth.cores||0) + 1;
+      if (state.clanWealth.gold < 0) state.clanWealth.gold = 0;
+    } catch(e) {}
+  }
+
+  // auto story occasionally for active char
+  if (state.sim.autoStory && state.sim.month % 6 === 0 && Math.random() > 0.5) {
+    const active = getActiveChar();
+    if (active && active.alive !== false) {
+      try {
+        // lightweight chronicle entry without full view switch
+        const line = active.name + " continued the long road in year " + state.sim.year + ", holding " + active.star + " " + active.realm + " under rising continental pressure.";
+        state.storyChapters.push({ title: "Chronicle Y" + state.sim.year + "M" + state.sim.month, content: line });
+      } catch(e) {}
+    }
+  }
+
+  try { nearExtinctionWarn(); } catch(e) {}
+  if (checkExtinction()) {
+    saveState();
+    switchView("simulation");
+    return;
+  }
+
+  if (state.sim.tick % 5 === 0) saveState();
+}
+
+let _simTimer = null;
+function startSimulation() {
+  ensureSim();
+  ensureWealth();
+  if (!state.lineage.founderId) return showToast("Set lineage founder first");
+  if (!state.world) return showToast("Create a world first");
+  if (!getLineageCharacters().length) return showToast("No living lineage members");
+  state.sim.running = true;
+  state.sim.lineageAlive = true;
+  simLog("Simulation started" + (state.lineage.ironman ? " [IRONMAN]" : ""));
+  try { pushNews("Simulation", "Lineage chronicle begins continuous timeflow."); } catch(e) {}
+  saveState();
+  if (_simTimer) clearInterval(_simTimer);
+  if (_simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  const ms = Math.max(150, 1000 / (state.sim.speed || 1));
+  _simTimer = setInterval(() => {
+    if (!state.sim || !state.sim.running) { clearInterval(_simTimer); _simTimer = null; return; }
+    try { simTick(); } catch (err) { console && console.error && console.error(err); state.sim.running = false; }
+    const bc = document.getElementById("breadcrumb");
+    if (bc && bc.textContent === "Lineage Simulation") {
+      try { switchView("simulation"); } catch(e) {}
+    }
+  }, ms);
+  switchView("simulation");
+  showToast("Simulation running");
+}
+
+function stopSimulation() {
+  ensureSim();
+  state.sim.running = false;
+  if (_simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  saveState();
+  showToast("Simulation paused");
+  switchView("simulation");
+}
+
+function setSimSpeed(s) {
+  ensureSim();
+  state.sim.speed = s;
+  if (state.sim.running) { stopSimulation(); startSimulation(); }
+  else showToast("Speed x" + s);
+}
+
+function forceHeir() {
+  ensureWealth();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select a living parent");
+  const cost = char.spouse ? 15 : 35;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " clan gold (married parents cheaper)");
+  state.clanWealth.gold -= cost;
+  const child = birthHeir(char);
+  if (child) {
+    simLog("Clan sponsored heir ceremony for " + child.name + " (-" + cost + " gold)");
+    saveState();
+    showToast("Heir created: " + child.name);
+    switchView("simulation");
+  }
+}
+
+function renderSimulation() {
+  ensureSim();
+  const living = getLineageCharacters();
+  const dead = state.lineage.dead || [];
+  const founder = (state.characters || []).find(c => c.id === state.lineage.founderId);
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header">
+        <h3 class="card-title">Lineage Simulation</h3>
+        <span class="badge ${state.sim.running ? "badge-green" : "badge-purple"}">${state.sim.running ? "RUNNING" : "PAUSED"}</span>
+      </div>
+      <p style="color:var(--text-muted);margin-bottom:12px;">A continuous world tick. Characters age, cultivate, birth heirs, and die. The simulation ends when no lineage members remain.</p>
+      <div class="grid-4" style="margin-bottom:12px;">
+        <div class="stat-box"><div class="label">Year</div><div class="value">${state.sim.year}</div></div>
+        <div class="stat-box"><div class="label">Month</div><div class="value">${state.sim.month}</div></div>
+        <div class="stat-box"><div class="label">Generation</div><div class="value">${state.lineage.generations||1}</div></div>
+        <div class="stat-box"><div class="label">Living</div><div class="value">${living.length}</div></div>
+      </div>
+      <p style="color:var(--text-muted);font-size:0.9rem;">Founder: <strong style="color:var(--gold);">${founder ? founder.name : "Not set"}</strong> · Blood: ${state.lineage.bloodName || "—"} · Threat: ${state.globalThreat||1} · Tick: ${state.sim.tick||0}</p>
+      <p style="color:var(--text-dim);font-size:0.82rem;margin-top:6px;">Tip: Marry spouses before forcing heirs. Renown boosts passive cultivation. Ironman blocks undo.</p>
+      ${state.sim.pendingChoice ? `
+        <div class="pause-card" style="position:relative;margin-top:14px;width:auto;">
+          <h3>Paused Event</h3>
+          <p style="color:var(--text-muted);margin-bottom:12px;">${state.sim.pendingChoice.event}</p>
+          ${state.sim.pendingChoice.options.map(o => `<button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="resolveSimChoice('${o.effect}')">${o.label}</button>`).join("")}
+        </div>
+      ` : ""}
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="togglePauseOnEvents()">Pause-on-Event: ${state.sim.pauseOnEvents===false?"OFF":"ON"}</button>
+        <button class="btn-ghost" onclick="switchView('familytree')">🌳 Family Tree Page</button>
+      </div>
+      ${!state.sim.lineageAlive ? `<p style="color:var(--red-glow);margin-top:10px;"><strong>EXTINCT:</strong> ${state.sim.extinctReason||""}</p>` : ""}
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
+        <button class="btn-primary" onclick="markFounder()">👑 Set Active as Founder</button>
+        <button class="btn-primary" onclick="startSimulation()">▶️ Start Forever Sim</button>
+        <button class="btn-ghost" onclick="stopSimulation()">⏸ Pause</button>
+        <button class="btn-ghost" onclick="setSimSpeed(1)">x1</button>
+        <button class="btn-ghost" onclick="setSimSpeed(2)">x2</button>
+        <button class="btn-ghost" onclick="setSimSpeed(5)">x5</button>
+        <button class="btn-ghost" onclick="forceHeir()">👶 Force Heir</button>
+        <button class="btn-ghost" onclick="marrySpouse()">💍 Marry Spouse</button>
+        <button class="btn-ghost" onclick="clanDepositFromChar()">💰 Contribute to Clan</button>
+        <button class="btn-ghost" onclick="clanInvestCultivation()">📿 Clan Funds Cultivation</button>
+        <button class="btn-ghost" onclick="toggleLineageIronman()">☠️ Ironman Lineage</button>
+        <button class="btn-ghost" onclick="designateSuccessor()">👑 Designate Successor</button>
+        <button class="btn-ghost" onclick="addLineageTrait()">🧬 Lineage Trait</button>
+        <button class="btn-ghost" onclick="buildTomb()">🪦 Build Tomb</button>
+        <button class="btn-ghost" onclick="successionCrisis()">⚔️ Succession Crisis</button>
+        <button class="btn-ghost" onclick="adoptGenius()">🧒 Adopt Genius</button>
+        <button class="btn-ghost" onclick="exportFamilyTree()">🌳 Export Family Tree</button>
+        <button class="btn-ghost" onclick="runShowcaseDemo()">🎬 Showcase Demo</button>
+        <button class="btn-ghost" onclick="resetLineageKeepWorld()">♻️ Reset Lineage Keep World</button>
+        <button class="btn-ghost" onclick="simTick(); switchView('simulation')">⏭ Single Tick</button>
+      </div>
+      <div class="grid-4" style="margin-top:14px;">
+        <div class="stat-box"><div class="label">Clan Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
+        <div class="stat-box"><div class="label">Herbs</div><div class="value">${(state.clanWealth&&state.clanWealth.herbs)||0}</div></div>
+        <div class="stat-box"><div class="label">Cores</div><div class="value">${(state.clanWealth&&state.clanWealth.cores)||0}</div></div>
+        <div class="stat-box"><div class="label">Renown</div><div class="value">${(state.clanWealth&&state.clanWealth.renown)||1}</div></div>
+      </div>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-top:8px;">Ironman: <strong style="color:${state.lineage.ironman? 'var(--red-glow)' : 'var(--gold)'};">${state.lineage.ironman ? "ON (permanent deaths)" : "OFF"}</strong></p>
+      <p style="color:var(--text-dim);font-size:0.82rem;margin-top:6px;">Traits: ${(state.lineageTraits||[]).join(", ") || "none"} · Tombs: ${(state.tombs||[]).length} · Successor: ${state.succession && state.succession.designatedId ? (state.characters.find(x=>x.id===state.succession.designatedId)||{}).name || state.succession.designatedId : "none"}</p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Living Lineage</h3>
+      ${living.length ? living.map(c => `
+        <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <strong style="color:var(--gold);">${c.name}</strong>
+            <div style="font-size:0.82rem;color:var(--text-muted);">Gen ${c.generation||1} · Age ${c.age||"?"} · ${c.star} ${c.realm} · ${c.talent}${c.spouse ? " · Spouse: "+c.spouse : ""}${c.parentName ? " · Child of "+c.parentName : ""}</div>
+          </div>
+          <button class="btn-ghost" onclick="state.currentCharacterId='${c.id}'; saveState(); switchView('character')">Select</button>
+        </div>
+      `).join("") : `<p style="color:var(--text-dim);">No living lineage members. Set a founder.</p>`}
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="card-title" style="margin-bottom:10px;">Simulation Log</h3>
+      <div style="max-height:260px;overflow:auto;">
+        ${(state.sim.log||[]).slice(0,25).map(l => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);"><span style="color:var(--gold);">Y${l.year}M${l.month}</span> — ${l.msg}</div>`).join("") || "<p style=\\"color:var(--text-dim)\\">No ticks yet</p>"}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title" style="margin-bottom:10px;">Ancestral Record (Dead)</h3>
+      ${dead.length ? dead.slice().reverse().map(d => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);">${d.name} · Gen ${d.generation||"?"} · Y${d.year} — ${d.reason}</div>`).join("") : "<p style=\\"color:var(--text-dim)\\">No deaths recorded</p>"}
+    </div>
+  `;
+}
+
+
+
+// ===== Marriage, Clan Wealth, Ironman Lineage =====
+
+function ensureWealth() {
+  ensureSim();
+  if (!state.clanWealth) {
+    state.clanWealth = { gold: 100, herbs: 5, cores: 1, ores: 2, renown: 1 };
+  }
+  if (!state.lineage) ensureSim();
+  if (state.lineage.ironman == null) state.lineage.ironman = false;
+}
+
+function marrySpouse() {
+  ensureWealth();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select a living character");
+  if (char.spouse) return showToast("Already married to " + char.spouse);
+  if ((char.age || 0) < 18) return showToast("Too young to marry");
+  const cost = 40;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need 40 clan gold for marriage rites");
+  state.clanWealth.gold -= cost;
+  const spouse = generateName();
+  char.spouse = spouse;
+  char.marriedYear = state.sim.year;
+  // marriage slightly improves birth odds marker
+  char.marriageBonus = 0.02;
+  state.clanWealth.renown = (state.clanWealth.renown || 1) + 1;
+  simLog(char.name + " married " + spouse + ". Clan gold -" + cost);
+  try { pushNews("Marriage", char.name + " married " + spouse + "."); } catch(e) {}
+  saveState();
+  showToast("Married: " + spouse);
+  switchView("simulation");
+}
+
+function clanDepositFromChar() {
+  ensureWealth();
+  const char = getActiveChar();
+  if (!char) return;
+  const amt = Math.min(200, Math.floor((char.douQi || 100) / 20));
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + Math.max(10, amt);
+  simLog(char.name + " contributed resources to clan vault (+" + Math.max(10, amt) + " gold)");
+  saveState();
+  showToast("Clan gold: " + state.clanWealth.gold);
+  switchView("simulation");
+}
+
+function clanInvestCultivation() {
+  ensureWealth();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select living character");
+  const cost = 30;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need 30 clan gold");
+  state.clanWealth.gold -= cost;
+  char.douQi = (char.douQi || 100) + randInt(150, 400);
+  char.foundation = Math.min(100, (char.foundation || 40) + randInt(1, 3));
+  if ((state.clanWealth.herbs || 0) > 0 && Math.random() > 0.5) {
+    state.clanWealth.herbs -= 1;
+    char.comprehension = Math.min(100, (char.comprehension || 20) + 1);
+  }
+  simLog("Clan invested in " + char.name + "'s cultivation (-" + cost + " gold)");
+  saveState();
+  showToast("Cultivation funded by clan vault");
+  switchView("simulation");
+}
+
+function clanTradeYearly() {
+  ensureWealth();
+  // passive wealth tick called from sim
+  const renown = state.clanWealth.renown || 1;
+  const living = getLineageCharacters().length;
+  const gain = randInt(1, 8) + Math.floor(living * 1.5) + Math.floor(renown / 2);
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + gain;
+  if (Math.random() > 0.7) state.clanWealth.herbs = (state.clanWealth.herbs || 0) + randInt(0, 2);
+  if (Math.random() > 0.85) state.clanWealth.cores = (state.clanWealth.cores || 0) + 1;
+}
+
+function toggleLineageIronman() {
+  ensureWealth();
+  if (state.lineage.ironman && state.sim && state.sim.tick > 0) {
+    return showToast("Ironman already sealed for this lineage run");
+  }
+  state.lineage.ironman = !state.lineage.ironman;
+  if (state.lineage.ironman) {
+    // hardcore rules
+    state.featureFlags = state.featureFlags || {};
+    state.featureFlags.ironman = true;
+    simLog("IRONMAN LINEAGE SEALED — no revive, deaths permanent, undo discouraged");
+    showToast("Ironman lineage ON");
+  } else {
+    showToast("Ironman lineage OFF");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function ironmanBlockRevive() {
+  ensureWealth();
+  return !!(state.lineage && state.lineage.ironman);
+}
+
+
+
+// ===== WAVE 100B: lineage drama, story tools, product meta =====
+
+function ensure100b() {
+  ensureSim && ensureSim();
+  ensureWealth && ensureWealth();
+  if (!state.lineageTraits) state.lineageTraits = [];
+  if (!state.succession) state.succession = { designatedId: null };
+  if (!state.tombs) state.tombs = [];
+  if (!state.demo) state.demo = { running: false };
+  if (!state.lineageWarnings) state.lineageWarnings = [];
+}
+
+function designateSuccessor() {
+  ensure100b();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select a living heir/member");
+  state.succession.designatedId = char.id;
+  simLog(char.name + " designated as successor");
+  saveState();
+  showToast("Successor: " + char.name);
+  switchView("simulation");
+}
+
+function addLineageTrait() {
+  ensure100b();
+  const traits = ["Flame Affinity", "Short-Lived", "Genius Blood", "Iron Constitution", "Cursed Fate", "Merchant Mind"];
+  const t = traits[Math.floor(Math.random() * traits.length)];
+  if (!state.lineageTraits.includes(t)) state.lineageTraits.push(t);
+  simLog("Lineage trait emerged: " + t);
+  saveState();
+  showToast("Trait: " + t);
+}
+
+function buildTomb() {
+  ensure100b();
+  const dead = (state.lineage.dead || [])[state.lineage.dead.length - 1];
+  if (!dead) return showToast("No dead ancestors yet");
+  if ((state.clanWealth.gold || 0) < 20) return showToast("Need 20 gold for tomb");
+  state.clanWealth.gold -= 20;
+  state.tombs.push({ name: dead.name, year: dead.year, buff: "foundation" });
+  // small buff to living
+  getLineageCharacters().forEach(c => {
+    c.foundation = Math.min(100, (c.foundation || 40) + 1);
+  });
+  simLog("Tomb raised for " + dead.name);
+  saveState();
+  showToast("Ancestral tomb built");
+}
+
+function exportFamilyTree() {
+  ensure100b();
+  const living = typeof getLineageCharacters === "function" ? getLineageCharacters() : [];
+  const dead = state.lineage.dead || [];
+  let t = "FAMILY TREE — " + (state.lineage.bloodName || "?") + "\\n";
+  t += "Generations: " + (state.lineage.generations || 1) + "\\n\\nLIVING\\n";
+  living.forEach(c => {
+    t += "- Gen " + (c.generation || 1) + " " + c.name + " | " + c.star + " " + c.realm + (c.spouse ? " | spouse " + c.spouse : "") + (c.parentName ? " | child of " + c.parentName : "") + "\\n";
+  });
+  t += "\\nDEAD\\n";
+  dead.forEach(d => { t += "- Gen " + (d.generation || "?") + " " + d.name + " Y" + d.year + " — " + d.reason + "\\n"; });
+  t += "\\nTraits: " + (state.lineageTraits || []).join(", ") + "\\n";
+  t += "Successor: " + (state.succession.designatedId || "none") + "\\n";
+  const blob = new Blob([t], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "family-tree.txt";
+  a.click();
+  showToast("Family tree exported");
+}
+
+function successionCrisis() {
+  ensure100b();
+  const living = getLineageCharacters();
+  if (living.length < 2) return showToast("Need 2+ living members");
+  const a = living[0], b = living[1];
+  simLog("Succession crisis between " + a.name + " and " + b.name);
+  if (Math.random() > 0.5) {
+    state.succession.designatedId = a.id;
+    applyInjury(b, 1);
+    simLog(a.name + " seized succession; " + b.name + " injured");
+  } else {
+    state.succession.designatedId = b.id;
+    applyInjury(a, 1);
+    simLog(b.name + " seized succession; " + a.name + " injured");
+  }
+  state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - randInt(5, 20));
+  saveState();
+  switchView("simulation");
+  showToast("Succession crisis resolved");
+}
+
+function nearExtinctionWarn() {
+  ensure100b();
+  const living = getLineageCharacters();
+  if (living.length === 1 && state.lineage.founderId) {
+    const msg = "LAST HEIR WARNING: only " + living[0].name + " remains";
+    if (!state.lineageWarnings.includes(msg)) {
+      state.lineageWarnings.push(msg);
+      simLog(msg);
+      showToast(msg);
+    }
+  }
+}
+
+function adoptGenius() {
+  ensure100b();
+  if ((state.clanWealth.gold || 0) < 60) return showToast("Need 60 gold to adopt outside genius");
+  state.clanWealth.gold -= 60;
+  const child = generateCharacter("Dou Zhe");
+  child.name = child.name.split(" ")[0] + " " + (state.lineage.bloodName || "Adopted");
+  child.alive = true;
+  child.isHeir = true;
+  child.adopted = true;
+  child.lineageId = state.lineage.founderId;
+  child.generation = (state.lineage.generations || 1);
+  child.talent = ["Genius", "Monster", "Excellent"][Math.floor(Math.random() * 3)];
+  state.characters.push(child);
+  state.lineage.heirs.push(child.id);
+  state.clanWealth.renown = Math.max(1, (state.clanWealth.renown || 1) - 0); // adoption may dilute prestige slightly narrative-only
+  simLog("Adopted genius " + child.name + " into the lineage");
+  saveState();
+  showToast("Adopted: " + child.name);
+  switchView("simulation");
+}
+
+function runShowcaseDemo() {
+  ensure100b();
+  if (!state.world) createWorld();
+  if (!state.characters.length) createCharacter("Dou Zhe");
+  const char = state.characters[0];
+  state.currentCharacterId = char.id;
+  markFounder();
+  try { marrySpouse(); } catch(e) {}
+  try { forceHeir(); } catch(e) {}
+  state.sim.speed = 5;
+  startSimulation();
+  showToast("Showcase demo running");
+}
+
+function storyDebtPayoff() {
+  const char = getActiveChar();
+  if (!char || !char.storyMemory || !(char.storyMemory.debts || []).length) {
+    // create a debt payoff style chapter anyway if branch flags
+    if (state.branch && state.branch.flags && Object.keys(state.branch.flags).length) {
+      writeSpecialFlagChapter();
+      return;
+    }
+    return showToast("No stored debts/flags yet — play stories/branches first");
+  }
+  const debt = char.storyMemory.debts.pop();
+  state.storyChapters.push({
+    title: "Payoff: Old Debt",
+    content: char.name + " finally faced an old debt: " + debt + ".\\n\\nWhether paid in gold, blood, or humiliation, the ledger closed — and a new enmity opened elsewhere."
+  });
+  char.experience = Math.min(100, (char.experience || 20) + 5);
+  saveState();
+  switchView("story");
+  showToast("Debt payoff chapter written");
+}
+
+function breakthroughPreview() {
+  const char = getActiveChar();
+  if (!char) return showToast("Select character");
+  const rankIndex = DOU_QI_RANKS.findIndex(r => r.name === char.realm);
+  let chance = 0.35 - (rankIndex * 0.025);
+  if (char.talent === "Against the Heavens") chance += 0.35;
+  else if (char.talent === "Monster") chance += 0.25;
+  else if (char.talent === "Genius") chance += 0.15;
+  chance += (char.foundation || 0) / 200;
+  chance = Math.max(0.05, Math.min(0.95, chance));
+  alert("Breakthrough preview for " + char.name + "\\nRealm: " + char.star + " " + char.realm + "\\nEstimated success chance: " + Math.round(chance * 100) + "%\\nFoundation: " + (char.foundation || 0));
+}
+
+function resetLineageKeepWorld() {
+  if (!confirm("Reset lineage data but keep world/content?")) return;
+  stopSimulation && stopSimulation();
+  state.lineage = { founderId: null, generations: 1, heirs: [], dead: [], bloodName: null, ironman: false };
+  state.sim = { running: false, speed: 1, tick: 0, year: 1, month: 1, log: [], lineageAlive: true, extinctReason: null, autoStory: true };
+  state.clanWealth = { gold: 100, herbs: 5, cores: 1, ores: 2, renown: 1 };
+  state.succession = { designatedId: null };
+  state.tombs = [];
+  state.lineageTraits = [];
+  // revive flags on characters lightly
+  (state.characters || []).forEach(c => { c.alive = true; c.isFounder = false; c.isHeir = false; });
+  saveState();
+  showToast("Lineage reset; world kept");
+  switchView("simulation");
+}
+
+
+
+function ensurePause() {
+  if (!state.sim) return;
+  if (state.sim.pauseOnEvents == null) state.sim.pauseOnEvents = true;
+  if (!state.sim.pendingChoice) state.sim.pendingChoice = null;
+}
+
+function offerSimChoice(eventName) {
+  ensurePause();
+  if (!state.sim.pauseOnEvents || !state.sim.running) return false;
+  // only pause sometimes on notable events
+  const choices = {
+    "secret realm": [
+      { label: "Send heir to the realm", effect: "realm" },
+      { label: "Sell the coordinates", effect: "gold" },
+      { label: "Ignore the rumor", effect: "safe" }
+    ],
+    "auction": [
+      { label: "Bid aggressively", effect: "bid" },
+      { label: "Rob the winner later", effect: "scheme" },
+      { label: "Stay out", effect: "safe" }
+    ],
+    "Beast tide": [
+      { label: "Defend the clan", effect: "defend" },
+      { label: "Evacuate wealth", effect: "evacuate" },
+      { label: "Hide and wait", effect: "safe" }
+    ],
+    "Ancient Clan": [
+      { label: "Offer tribute", effect: "tribute" },
+      { label: "Refuse and risk", effect: "refuse" },
+      { label: "Seek patron elsewhere", effect: "patron" }
+    ]
+  };
+  let key = null;
+  for (const k of Object.keys(choices)) {
+    if (eventName.includes(k) || eventName.toLowerCase().includes(k.toLowerCase())) { key = k; break; }
+  }
+  if (!key) return false;
+  state.sim.pendingChoice = { event: eventName, options: choices[key] };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  showToast("Simulation paused for decision");
+  return true;
+}
+
+function resolveSimChoice(effect) {
+  ensureWealth();
+  const living = getLineageCharacters();
+  const char = living[0] || getActiveChar();
+  let msg = "Decision resolved: " + effect;
+  if (effect === "realm" && char) {
+    char.experience = Math.min(100, (char.experience||20)+6);
+    if (Math.random()>0.5) applyInjury(char,1);
+    msg = char.name + " entered a secret realm opportunity.";
+  } else if (effect === "gold" || effect === "bid") {
+    state.clanWealth.gold = (state.clanWealth.gold||0) + randInt(10, 50);
+    msg = "Clan vault changed through market action.";
+  } else if (effect === "scheme") {
+    state.clanWealth.gold = (state.clanWealth.gold||0) + randInt(20, 70);
+    if (char) char.wanted = Math.min(5,(char.wanted||0)+1);
+    msg = "Scheme succeeded with heat.";
+  } else if (effect === "defend") {
+    if (char && Math.random()>0.4) applyInjury(char,1);
+    state.clanWealth.renown = (state.clanWealth.renown||1)+1;
+    msg = "Clan defended its borders.";
+  } else if (effect === "evacuate") {
+    state.clanWealth.gold = (state.clanWealth.gold||0) + randInt(5, 20);
+    msg = "Wealth evacuated before the tide.";
+  } else if (effect === "tribute") {
+    state.clanWealth.gold = Math.max(0,(state.clanWealth.gold||0)-25);
+    state.clanWealth.renown = (state.clanWealth.renown||1)+1;
+    msg = "Tribute paid; pressure eases.";
+  } else if (effect === "refuse") {
+    state.globalThreat = Math.min(10,(state.globalThreat||1)+1);
+    msg = "Refusal raised continental pressure.";
+  } else if (effect === "patron") {
+    state.clanWealth.renown = (state.clanWealth.renown||1)+1;
+    msg = "A new patron relationship begins.";
+  } else {
+    msg = "The clan chose caution.";
+  }
+  simLog(msg);
+  state.sim.pendingChoice = null;
+  saveState();
+  showToast(msg);
+  switchView("simulation");
+}
+
+function togglePauseOnEvents() {
+  ensurePause();
+  state.sim.pauseOnEvents = !state.sim.pauseOnEvents;
+  saveState();
+  showToast("Pause on events: " + (state.sim.pauseOnEvents ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function renderFamilyTreePage() {
+  ensureSim();
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header">
+        <h3 class="card-title">Family Tree</h3>
+        <button class="btn-ghost" onclick="exportFamilyTree()">Export Text</button>
+      </div>
+      <p style="color:var(--text-muted);margin-bottom:12px;">Visual lineage by generation. Living and fallen ancestors.</p>
+      ${window.DaoLineage ? window.DaoLineage.renderTree(state) : "<p>Tree module missing</p>"}
+    </div>
+    <div class="card">
+      <button class="btn-ghost" onclick="switchView('simulation')">← Back to Lineage Sim</button>
+    </div>
+  `;
+}
+
+
 // ========== NAVIGATION ==========
 
 const views = {
@@ -1558,7 +4244,13 @@ const views = {
   battle: { title: 'Battle Simulator', render: renderBattle },
   story: { title: 'Story Generator', render: renderStory },
   community: { title: 'Community', render: renderCommunity },
-  pricing: { title: 'Cultivation Paths', render: renderPricing }
+  pricing: { title: 'Cultivation Paths', render: renderPricing },
+  codex: { title: 'World Codex', render: renderCodex },
+  branch: { title: 'Branching Story', render: renderBranchStory },
+  achievements: { title: 'Achievements', render: renderAchievements },
+  stats: { title: 'Statistics', render: renderStats },
+  simulation: { title: 'Lineage Simulation', render: renderSimulation },
+  familytree: { title: 'Family Tree', render: renderFamilyTreePage }
 };
 
 function switchView(viewName) {

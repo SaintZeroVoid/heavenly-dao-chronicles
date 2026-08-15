@@ -4,10 +4,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Heavenly Dao Chronicles — BTTH AI Universe Creator</title>
+  <link rel="manifest" href="manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/design-system.css">
 </head>
 <body>
   <!-- Loading Screen -->
@@ -68,8 +70,23 @@
         <button class="nav-item" data-view="story">
           <span class="icon">📖</span> Story Generator
         </button>
+        <button class="nav-item" data-view="branch">
+          <span class="icon">🌿</span> Branching Story
+        </button>
         <button class="nav-item" data-view="community">
           <span class="icon">🌌</span> Community
+        </button>
+        <button class="nav-item" data-view="codex">
+          <span class="icon">📚</span> World Codex
+        </button>
+        <button class="nav-item" data-view="achievements">
+          <span class="icon">🏆</span> Achievements
+        </button>
+        <button class="nav-item" data-view="stats">
+          <span class="icon">📊</span> Statistics
+        </button>
+        <button class="nav-item" data-view="simulation">
+          <span class="icon">♾️</span> Lineage Sim
         </button>
         <button class="nav-item" data-view="pricing">
           <span class="icon">💎</span> Cultivation Paths
@@ -107,7 +124,12 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="js/data.js"></script>
+  <script src="js/modules/ui.js"></script>
+  <script src="js/modules/combat.js"></script>
+  <script src="js/modules/graph.js"></script>
+  <script src="js/modules/lineage.js"></script>
   <script src="js/factions-extra.js"></script>
   <script src="js/app.js"></script>
+  <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
 </body>
 </html>

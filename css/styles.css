@@ -717,3 +717,9 @@ body {
 .story-enhanced {
   border-left: 3px solid var(--purple);
 }
+
+/* Final polish pass */
+.nav-item.active .icon { filter: drop-shadow(0 0 4px rgba(224,192,96,0.5)); }
+.btn-primary:active { transform: translateY(0); }
+.char-card .name { letter-spacing: 0.5px; }
+.ai-output { box-shadow: inset 0 0 30px rgba(0,0,0,0.25); }

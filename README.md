@@ -1,32 +1,22 @@
 # Heavenly Dao Chronicles
-### Ultimate BTTH AI Universe Creator
 
-**Version:** Max Expanded Edition
+BTTH-inspired cultivation universe creator (static web app).
 
-A complete client-side web app for creating and living inside your own Battle Through the Heavens style cultivation universe.
+## Highlights
+- BTTH-style story engine (pressure → method → stage → clash → payoff → seed)
+- Branching story graphs with multiple arcs/endings
+- Cultivation, flames, alchemy, factions, map travel
+- Battle loadout panels, achievements, statistics
+- Save slots, import/export, service worker offline cache
 
-## Features
+## Run
+Open `index.html` or deploy the folder to GitHub Pages.
 
-- World Creator with regions, eras, Heavenly Laws & live events
-- Detailed Character System (talent, bloodline, physique, secrets, inventory, reputation)
-- Cultivation Simulator (train, deep meditation, breakthroughs)
-- Technique Generator (Huang → Emperor Rank)
-- Ranked Heavenly Flames (classic BTTH ranking)
-- Alchemy Laboratory (success & failure)
-- Magical Beast System
-- Eight Ancient Clans + Five Supreme Beast Clans
-- Sect Creation
-- Battle Simulator with detailed outcomes
-- Multi-paragraph Story Generator
-- Local save + JSON export
-- Novel export (all chapters as TXT)
-
-## How to Run
-
-Open `index.html` in any modern browser, or deploy the folder to GitHub Pages / Netlify / Vercel.
-
-## Dou Qi Ranking
-
-Dou Zhe → Dou Shi → Da Dou Shi → Dou Ling → Dou Wang → Dou Huang → Dou Zong → Dou Zun → Half-Saint → Dou Saint → Dou Di
+## Structure
+- `js/data.js` generators
+- `js/modules/` combat, graph, ui
+- `js/factions-extra.js` empires/academies/etc
+- `js/app.js` orchestration
+- `css/design-system.css` tokens + polish
 
 *The Heavenly Dao remembers everything.*

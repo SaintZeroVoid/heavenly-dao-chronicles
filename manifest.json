@@ -1,0 +1,9 @@
+{
+  "name": "Heavenly Dao Chronicles",
+  "short_name": "HeavenlyDao",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#07070c",
+  "theme_color": "#e0c060",
+  "description": "BTTH-inspired AI cultivation universe creator"
+}
