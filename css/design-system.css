@@ -152,3 +152,12 @@ body { background: var(--ds-bg-0) !important; color: var(--ds-text); font-family
   .mobile-bottom-nav { display: flex; }
   .main-content { padding-bottom: 72px !important; }
 }
+
+#loading-screen.hidden,
+#loading-screen.fade-out {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  display: none !important;
+}
+#app.hidden { display: none !important; }
+#app:not(.hidden) { display: flex !important; min-height: 100vh; }

@@ -4,7 +4,21 @@
 // Ultimate Application Logic — Expanded Edition
 // ======================
 
-var SAVE_VERSION = 3; // var so it is available before later const reassignments / hoisted for migrateSave
+var SAVE_VERSION = 3;
+
+// Safe empty shell if data.js failed to load
+var _FALLBACK_STATE = {
+  world: null, characters: [], techniques: [], flames: [], beasts: [],
+  sects: [], clans: [], empires: [], academies: [], auctions: [], pillTowers: [],
+  events: [], pills: [], storyChapters: [], currentCharacterId: null, currentRegion: 'Outerland'
+};
+
+function safeDefaultState() {
+  try {
+    if (typeof DEFAULT_STATE !== 'undefined' && DEFAULT_STATE) return { ...DEFAULT_STATE };
+  } catch (e) {}
+  return { ..._FALLBACK_STATE };
+}
 
 let state;
 try {
@@ -12,15 +26,24 @@ try {
   state = raw ? JSON.parse(raw) : null;
 } catch (e) {
   console.warn('Corrupt save cleared', e);
+  try { localStorage.removeItem('heavenlyDaoState'); } catch (e2) {}
   state = null;
 }
-state = (typeof migrateSave === 'function')
-  ? migrateSave(state || { ...DEFAULT_STATE })
-  : (state || { ...DEFAULT_STATE });
+// Do NOT call migrateSave here (can TDZ / throw). Simple merge only.
+state = state && typeof state === 'object' ? state : safeDefaultState();
 ['sects','clans','empires','academies','auctions','pillTowers','events','pills','techniques','flames','beasts','characters','storyChapters'].forEach(k => {
   if (!Array.isArray(state[k])) state[k] = [];
 });
 if (!state.currentRegion) state.currentRegion = 'Outerland';
+
+function revealApp() {
+  try {
+    const ls = document.getElementById('loading-screen');
+    const app = document.getElementById('app');
+    if (ls) { ls.classList.add('fade-out'); ls.classList.add('hidden'); ls.style.display = 'none'; }
+    if (app) { app.classList.remove('hidden'); app.style.display = ''; }
+  } catch (e) {}
+}
 
 
 function saveState() {
@@ -4645,19 +4668,29 @@ const views = {
 };
 
 function switchView(viewName) {
-  const view = views[viewName];
-  if (!view) return;
-  document.querySelectorAll('.nav-item').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.view === viewName);
-  });
-  document.getElementById('breadcrumb').textContent = view.title;
-  document.getElementById('content').innerHTML = view.render();
+  try {
+    const view = views[viewName];
+    if (!view) { console.warn('Unknown view', viewName); return; }
+    document.querySelectorAll('.nav-item').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === viewName);
+    });
+    const bc = document.getElementById('breadcrumb');
+    if (bc) bc.textContent = view.title;
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = view.render();
+    revealApp();
+  } catch (e) {
+    console.error('switchView error', e);
+    revealApp();
+    const content = document.getElementById('content');
+    if (content) content.innerHTML = '<div class="card"><h3 class="card-title">View error</h3><p style="color:var(--text-muted)">' + (e && e.message ? e.message : e) + '</p></div>';
+  }
 }
 
 // ========== INIT ==========
 
 document.addEventListener('DOMContentLoaded', () => {
-  try { if (typeof migrateSave === 'function') state = migrateSave(state); } catch(e) {}
+  try { if (typeof migrateSave === 'function') state = migrateSave(state); } catch(e) { console.warn(e); }
   try { if (typeof ensureMeta === 'function') ensureMeta(); } catch(e) {}
   try { if (typeof ensureSim === 'function') ensureSim(); } catch(e) {}
   try { if (typeof ensureWealth === 'function') ensureWealth(); } catch(e) {}
@@ -4665,15 +4698,10 @@ document.addEventListener('DOMContentLoaded', () => {
   try { if (typeof ensure100b === 'function') ensure100b(); } catch(e) {}
   try { if (typeof initSimWorker === 'function') initSimWorker(); } catch(e) {}
 
-  setTimeout(() => {
-    const ls = document.getElementById('loading-screen');
-    const app = document.getElementById('app');
-    if (ls) ls.classList.add('fade-out');
-    setTimeout(() => {
-      if (ls) ls.classList.add('hidden');
-      if (app) app.classList.remove('hidden');
-    }, 600);
-  }, 1100);
+  // Always reveal app — never stick on loader
+  setTimeout(revealApp, 400);
+  setTimeout(revealApp, 1500);
+  setTimeout(revealApp, 3000);
 
   document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
@@ -4697,7 +4725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  switchView('dashboard');
+  try { switchView('dashboard'); } catch(e) { console.error(e); try { revealApp(); } catch(e2) {} }
   try {
     const tb = document.querySelector('.topbar');
     if (tb && !document.getElementById('ver-tag')) {
