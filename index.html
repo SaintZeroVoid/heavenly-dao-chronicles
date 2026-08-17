@@ -137,9 +137,27 @@
   <script src="js/modules/combat.js"></script>
   <script src="js/modules/graph.js"></script>
   <script src="js/modules/lineage.js"></script>
-  <script src="js/modules/story.js"></script>
   <script src="js/factions-extra.js"></script>
   <script src="js/app.js"></script>
   <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
+
+  <!-- Defensive fallback: ensure the loading screen is hidden even if initialization errors occur -->
+  <script>
+    (function(){
+      function showAppFallback(){
+        try{
+          const ls = document.getElementById('loading-screen');
+          const app = document.getElementById('app');
+          if (ls) ls.classList.add('fade-out');
+          setTimeout(function(){ if (ls) ls.classList.add('hidden'); if (app) app.classList.remove('hidden'); }, 600);
+        }catch(e){ console && console.error && console.error('fallback showApp error', e); }
+      }
+      // Force a fallback after 5s if app didn't initialize
+      setTimeout(showAppFallback, 5000);
+      // If any runtime error or unhandled rejection occurs during startup, reveal the UI so users aren't stuck
+      window.addEventListener('error', function(e){ console && console.error && console.error(e); showAppFallback(); });
+      window.addEventListener('unhandledrejection', function(e){ console && console.error && console.error(e); showAppFallback(); });
+    })();
+  </script>
 </body>
 </html>
