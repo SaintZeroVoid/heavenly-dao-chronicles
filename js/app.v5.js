@@ -3764,7 +3764,7 @@ function simTick() {
     try { rivalTick(); } catch(e) {}
     try { outerRebellionCheck(); prestigeTierFromRenown(); } catch(e) {}
     try { dutyBonusesTick(); autoStipendYearly(); } catch(e) {}
-    try { ensureSimDepth(); refreshYearlyAP(); tickOrders(); if (state.sim.month===3) tradeCaravan(); checkBankruptcy(); } catch(e) {}
+    try { ensureSimDepth(); refreshYearlyAP(); tickOrders(); if (state.sim.month===3) tradeCaravan(); checkBankruptcy(); balancePassSoft(); } catch(e) {}
     try { ensureHierarchy(); const elders = getLineageCharacters().filter(x => hierarchyPower(x) >= 3); if (elders.length && Math.random()>0.5) state.clanWealth.renown = (state.clanWealth.renown||1)+1; } catch(e) {}
     try { if (state.sim.year % 10 === 0 && state.sim.month === 1) { simLog('Decade mark Y'+state.sim.year); try { decadeSummary(); } catch(e2) {} } } catch(e) {}
     try {
@@ -5494,26 +5494,138 @@ function assignHierarchyRank(rankId) {
 
 function autoOrganizeHierarchy() {
   ensureHierarchy();
-  const living = getLineageCharacters().slice().sort((a, b) => {
-    const ga = (b.generation || 1) - (a.generation || 1);
-    if (ga) return (a.generation || 1) - (b.generation || 1); // lower gen first
-    return (typeof rankPower === "function" ? rankPower(b) - rankPower(a) : 0);
-  });
+  ensureSimDepth && ensureSimDepth();
+  ensureHierDepth && ensureHierDepth();
+  const living = getLineageCharacters().slice();
   if (!living.length) return showToast("No living members");
-  // patriarch = founder or strongest gen1
-  const founder = living.find(c => c.isFounder) || living[0];
-  state.hierarchy.roles[founder.id] = "patriarch";
-  const rest = living.filter(c => c.id !== founder.id);
-  rest.forEach((c, i) => {
-    if (state.succession && state.succession.designatedId === c.id) state.hierarchy.roles[c.id] = "grand_elder";
-    else if (i < 2) state.hierarchy.roles[c.id] = "elder";
-    else if (i < 5) state.hierarchy.roles[c.id] = "core";
-    else if (i < 10) state.hierarchy.roles[c.id] = "inner";
-    else state.hierarchy.roles[c.id] = "outer";
+
+  const power = (c) => {
+    let p = typeof rankPower === "function" ? rankPower(c) : 10;
+    p += (6 - Math.min(5, c.generation || 1)) * 4; // older gens slight authority
+    if (c.isFounder) p += 30;
+    if (state.succession && state.succession.designatedId === c.id) p += 18;
+    if (c.isHeir) p += 8;
+    if (c.education === "Politics") p += 6;
+    if (c.education === "Combat") p += 4;
+    if (typeof loyaltyOf === "function") p += (loyaltyOf(c) - 50) * 0.08;
+    if (c.injured) p -= 10 * c.injured;
+    if (c.cadetBranch) p -= 12;
+    return p;
+  };
+
+  living.sort((a, b) => power(b) - power(a));
+
+  // Clear ranks first
+  living.forEach(c => { state.hierarchy.roles[c.id] = "outer"; });
+
+  // Patriarch: existing founder if alive, else strongest
+  let patriarch = living.find(c => c.isFounder && c.alive !== false) || living[0];
+  living.forEach(c => { c.isFounder = (c.id === patriarch.id); });
+  state.hierarchy.roles[patriarch.id] = "patriarch";
+  state.lineage.founderId = patriarch.id;
+
+  // Successor / designated -> grand elder preferred
+  const designated = living.find(c => state.succession && state.succession.designatedId === c.id && c.id !== patriarch.id);
+  const remaining = living.filter(c => c.id !== patriarch.id);
+
+  const caps = (state.simDepth && state.simDepth.rankCaps) || { grand_elder: 2, elder: 3 };
+  let ge = 0, el = 0, core = 0, inner = 0;
+
+  // Score-ordered assignment with seats
+  remaining.forEach((c, idx) => {
+    if (designated && c.id === designated.id && ge < (caps.grand_elder || 2)) {
+      state.hierarchy.roles[c.id] = "grand_elder";
+      ge++;
+      return;
+    }
+    const score = power(c);
+    if (ge < (caps.grand_elder || 2) && (score > power(patriarch) * 0.72 || idx < 1)) {
+      state.hierarchy.roles[c.id] = "grand_elder";
+      ge++;
+    } else if (el < (caps.elder || 3) && score > power(patriarch) * 0.55) {
+      state.hierarchy.roles[c.id] = "elder";
+      el++;
+    } else if (core < Math.max(3, Math.floor(living.length * 0.25)) && (c.isHeir || score > power(patriarch) * 0.4)) {
+      state.hierarchy.roles[c.id] = "core";
+      core++;
+    } else if (inner < Math.max(4, Math.floor(living.length * 0.35))) {
+      state.hierarchy.roles[c.id] = "inner";
+      inner++;
+    } else {
+      state.hierarchy.roles[c.id] = "outer";
+    }
   });
-  simLog("Clan hierarchy auto-organized under " + founder.name);
+
+  // Cadets forced outer/inner only
+  living.forEach(c => {
+    if (c.cadetBranch && state.hierarchy.roles[c.id] !== "patriarch") {
+      if (["grand_elder","elder"].includes(state.hierarchy.roles[c.id])) {
+        state.hierarchy.roles[c.id] = "core";
+      }
+    }
+  });
+
+  // Auto-fill empty duties from best fits
+  state.hierarchy.duties = state.hierarchy.duties || {};
+  const nonPat = living.filter(c => c.id !== patriarch.id);
+  if (!state.hierarchy.duties.vaultkeeper) {
+    const vk = nonPat.slice().sort((a,b) => ((a.education==="Politics"?10:0)+loyaltyOf(a)) - ((b.education==="Politics"?10:0)+loyaltyOf(b))).reverse()[0];
+    if (vk) state.hierarchy.duties.vaultkeeper = vk.id;
+  }
+  if (!state.hierarchy.duties.warleader) {
+    const wl = nonPat.slice().sort((a,b) => power(b) - power(a))[0];
+    if (wl) state.hierarchy.duties.warleader = wl.id;
+  }
+  if (!state.hierarchy.duties.diplomat) {
+    const dip = nonPat.find(c => c.education === "Politics") || nonPat[0];
+    if (dip) state.hierarchy.duties.diplomat = dip.id;
+  }
+
+  // Loyalty nudge: organized structure
+  living.forEach(c => { try { addLoyalty(c, 2); } catch(e) {} });
+
+  const summary = "Patriarch " + patriarch.name +
+    " · GE " + living.filter(c=>state.hierarchy.roles[c.id]==="grand_elder").length +
+    " · Elders " + living.filter(c=>state.hierarchy.roles[c.id]==="elder").length +
+    " · Core " + living.filter(c=>state.hierarchy.roles[c.id]==="core").length;
+  simLog("Hierarchy auto-organized: " + summary);
   saveState();
-  showToast("Hierarchy organized");
+  showToast("Organized: " + summary);
+  switchView("simulation");
+}
+
+function autoOrganizeByBlood() {
+  // alternate: strict generation ladder
+  ensureHierarchy();
+  const living = getLineageCharacters();
+  if (!living.length) return showToast("No living members");
+  const byGen = {};
+  living.forEach(c => {
+    const g = c.generation || 1;
+    if (!byGen[g]) byGen[g] = [];
+    byGen[g].push(c);
+  });
+  const gens = Object.keys(byGen).map(Number).sort((a,b)=>a-b);
+  living.forEach(c => state.hierarchy.roles[c.id] = "outer");
+  const g1 = byGen[gens[0]] || [];
+  g1.sort((a,b) => (typeof rankPower==='function'?rankPower(b)-rankPower(a):0));
+  if (g1[0]) {
+    state.hierarchy.roles[g1[0].id] = "patriarch";
+    g1[0].isFounder = true;
+    state.lineage.founderId = g1[0].id;
+  }
+  (g1.slice(1)).forEach((c,i) => {
+    state.hierarchy.roles[c.id] = i === 0 ? "grand_elder" : (i < 3 ? "elder" : "core");
+  });
+  gens.slice(1).forEach((g, gi) => {
+    (byGen[g]||[]).forEach((c,i) => {
+      if (gi === 0) state.hierarchy.roles[c.id] = i < 2 ? "core" : "inner";
+      else state.hierarchy.roles[c.id] = i < 1 ? "inner" : "outer";
+    });
+  });
+  simLog("Hierarchy organized by blood generation ladder");
+  saveState();
+  showToast("Organized by bloodline generation");
   switchView("simulation");
 }
 
@@ -5594,7 +5706,8 @@ function renderHierarchyBoard() {
     <button class="btn-ghost" onclick="assignHierarchyRank('core')">Make Core</button>
     <button class="btn-ghost" onclick="assignHierarchyRank('inner')">Make Inner</button>
     <button class="btn-ghost" onclick="assignHierarchyRank('outer')">Make Outer</button>
-    <button class="btn-primary" onclick="autoOrganizeHierarchy()">Auto-Organize</button>
+    <button class="btn-primary" onclick="autoOrganizeHierarchy()">Auto-Organize (Merit)</button>
+    <button class="btn-ghost" onclick="autoOrganizeByBlood()">Organize by Blood</button>
     <button class="btn-ghost" onclick="promoteByMerit()">Promote by Merit</button>
     <button class="btn-ghost" onclick="hierarchyTribute()">Collect Tribute</button>
     <button class="btn-ghost" onclick="assignDuty('vaultkeeper')">Duty: Vaultkeeper</button>
@@ -6035,8 +6148,9 @@ function groupClash3v3() {
 
 function renderSimSections() {
   ensureSimDepth();
+  ensureSimQuality();
   const livingN = (typeof getLineageCharacters==='function'?getLineageCharacters().length:0);
-  return `
+  return `${typeof renderSimPulse==='function'?renderSimPulse():''}
     <div class="grid-3" style="margin-bottom:12px;">
       <div class="stat-box"><div class="label">Living</div><div class="value">${livingN}</div></div>
       <div class="stat-box"><div class="label">Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
@@ -6413,6 +6527,149 @@ function enableAdminPath() {
   saveState();
   showToast("Admin path ON — all features unlocked locally");
   switchView("pricing");
+}
+
+
+
+// ===== SIM QUALITY PASS =====
+function ensureSimQuality() {
+  ensureSimDepth && ensureSimDepth();
+  ensureSim();
+  if (!state.simQuality) {
+    state.simQuality = {
+      lastDelta: null, // { yearFrom, livingDelta, goldDelta, deaths, births }
+      yearStart: null,
+      autoPauseOnDeath: true,
+      autoPauseOnBirth: false,
+      compactUI: true
+    };
+  }
+}
+
+function beginYearSnapshot() {
+  ensureSimQuality();
+  if (state.sim.month !== 1) return;
+  state.simQuality.yearStart = {
+    year: state.sim.year,
+    living: getLineageCharacters().length,
+    gold: (state.clanWealth && state.clanWealth.gold) || 0,
+    dead: (state.lineage.dead || []).length
+  };
+}
+
+function endYearSnapshot() {
+  ensureSimQuality();
+  const s = state.simQuality.yearStart;
+  if (!s || s.year === state.sim.year) return;
+  // called when year increments - compare previous start
+}
+
+function captureYearDelta() {
+  ensureSimQuality();
+  const s = state.simQuality.yearStart;
+  if (!s) return;
+  const living = getLineageCharacters().length;
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const dead = (state.lineage.dead || []).length;
+  state.simQuality.lastDelta = {
+    year: s.year,
+    livingDelta: living - s.living,
+    goldDelta: gold - s.gold,
+    deaths: dead - s.dead
+  };
+}
+
+function toggleSimFlag(key) {
+  ensureSimQuality();
+  state.simQuality[key] = !state.simQuality[key];
+  saveState();
+  showToast(key + ": " + (state.simQuality[key] ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function smartSimTick() {
+  // one month with quality hooks
+  const livingBefore = getLineageCharacters().length;
+  const deadBefore = (state.lineage.dead || []).length;
+  if (state.sim.month === 1) beginYearSnapshot();
+  const yearBefore = state.sim.year;
+  simTick();
+  if (state.sim.year !== yearBefore) {
+    captureYearDelta();
+    beginYearSnapshot();
+  }
+  ensureSimQuality();
+  const deaths = (state.lineage.dead || []).length - deadBefore;
+  const births = getLineageCharacters().length - livingBefore + deaths; // rough
+  if (state.simQuality.autoPauseOnDeath && deaths > 0 && state.sim.running) {
+    state.sim.running = false;
+    if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+    try { recordPauseReason("Death in clan"); } catch(e) {}
+    showToast("Paused: clan death");
+  }
+}
+
+function renderYearDeltaCard() {
+  ensureSimQuality();
+  const d = state.simQuality.lastDelta;
+  if (!d) return '<p style="color:var(--text-dim);font-size:0.82rem;">Year delta appears after a full year passes.</p>';
+  const sign = n => (n > 0 ? "+" + n : "" + n);
+  return `<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:0.85rem;">
+    <span>Last year Y${d.year}:</span>
+    <span style="color:${d.livingDelta>=0?'var(--ds-gold)':'var(--red-glow)'}">Living ${sign(d.livingDelta)}</span>
+    <span style="color:${d.goldDelta>=0?'var(--ds-gold)':'var(--red-glow)'}">Gold ${sign(d.goldDelta)}</span>
+    <span style="color:var(--text-muted)">Deaths ${d.deaths||0}</span>
+  </div>`;
+}
+
+function balancePassSoft() {
+  // gently help small clans survive; pressure large ones
+  const n = getLineageCharacters().length;
+  if (n <= 2) {
+    getLineageCharacters().forEach(c => {
+      c.foundation = Math.min(100, (c.foundation || 40) + 0.5);
+    });
+  }
+  if (n >= 18) {
+    state.globalThreat = Math.min(10, (state.globalThreat || 1) + (Math.random() > 0.8 ? 1 : 0));
+  }
+}
+
+function quickSetupDynasty() {
+  if (!state.world) createWorld();
+  if (!state.characters.length) createCharacter("Dou Zhe");
+  state.currentCharacterId = state.characters[0].id;
+  markFounder();
+  try { marrySpouse(); } catch(e) {}
+  try { ensureHierarchy(); autoOrganizeHierarchy(); } catch(e) {}
+  try { ensureSimDepth(); setSimDifficulty("Standard"); setMonthlyAgenda("Train"); } catch(e) {}
+  showToast("Dynasty quick-setup complete — start the sim");
+  switchView("simulation");
+}
+
+function renderSimPulse() {
+  const living = getLineageCharacters();
+  const pat = living.find(c => typeof isPatriarch === "function" && isPatriarch(c));
+  return `<div class="card" style="margin-bottom:12px;padding:14px;">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;">
+      <div>
+        <div style="color:var(--gold);font-family:var(--ds-font-display);font-size:1.1rem;">${state.lineage.bloodName || "Unnamed Blood"}</div>
+        <div style="color:var(--text-muted);font-size:0.85rem;">Y${state.sim.year} M${state.sim.month} · ${living.length} living · Patriarch: ${pat?pat.name:"—"}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-primary" onclick="startSimulation()">▶ Run</button>
+        <button class="btn-ghost" onclick="stopSimulation && stopSimulation(); afterActionReport && afterActionReport();">⏹ Stop + Report</button>
+        <button class="btn-ghost" onclick="smartSimTick(); switchView('simulation')">⏭ Month</button>
+        <button class="btn-ghost" onclick="simulateYears(1)">⏩ Year</button>
+        <button class="btn-ghost" onclick="quickSetupDynasty()">⚡ Quick Setup</button>
+      </div>
+    </div>
+    <div style="margin-top:10px;">${renderYearDeltaCard()}</div>
+    <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;">
+      <button class="btn-ghost" onclick="toggleSimFlag('autoPauseOnDeath')">Auto-pause on death: ${state.simQuality&&state.simQuality.autoPauseOnDeath!==false?"ON":"OFF"}</button>
+      <button class="btn-ghost" onclick="toggleSimFlag('autoPauseOnBirth')">Auto-pause on birth: ${state.simQuality&&state.simQuality.autoPauseOnBirth?"ON":"OFF"}</button>
+    </div>
+  </div>`;
 }
 
 
