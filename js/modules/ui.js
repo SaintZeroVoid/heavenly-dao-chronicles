@@ -8,3 +8,6 @@ window.DaoUI = {
     setTimeout(() => t.classList.add('hidden'), 3000);
   }
 };
+
+// Backwards-compatible global expected by many modules
+window.showToast = function(msg) { window.DaoUI.toast(msg); };
