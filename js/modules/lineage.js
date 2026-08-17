@@ -14,7 +14,8 @@ window.DaoLineage = {
       html += `<div class="tree-gen"><div class="tree-gen-label">Generation ${g}</div><div class="tree-row">`;
       byGen[g].forEach(c => {
         const succ = state.succession && state.succession.designatedId === c.id ? " ★Successor" : "";
-        html += `<div class="tree-node living"><strong>${c.name}${succ}</strong><span>${c.star||""} ${c.realm||""}</span><span>${c.spouse? "💍 "+c.spouse:""}</span><span>${c.parentName? "↳ "+c.parentName:""}</span></div>`;
+        const rank = (state.hierarchy && state.hierarchy.roles && state.hierarchy.roles[c.id]) ? state.hierarchy.roles[c.id] : "";
+        html += `<div class="tree-node living"><strong>${c.name}${succ}</strong>${rank?`<span style=\"color:#e0c060\">${rank}</span>`:``}<span>${c.star||""} ${c.realm||""}</span><span>${c.spouse? "💍 "+c.spouse:""}</span><span>${c.parentName? "↳ "+c.parentName:""}</span></div>`;
       });
       html += '</div></div>';
       if (idx < gens.length - 1) html += '<div class="tree-connector">↓ parent lines to children ↓</div>';

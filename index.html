@@ -10,6 +10,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css?v=5">
   <link rel="stylesheet" href="css/design-system.css?v=5">
+<style id="boot-hide-loader">
+#loading-screen{animation:bootFade .4s ease 1s forwards !important}
+@keyframes bootFade{to{opacity:0;visibility:hidden;pointer-events:none;display:none !important}}
+#app{display:flex !important}
+</style>
 </head>
 <body>
   <!-- Loading Screen -->
@@ -17,7 +22,7 @@
     <div class="loader-content">
       <div class="loader-flame"></div>
       <h1>Heavenly Dao Chronicles</h1>
-      <p>Awakening the Dao...</p>
+      <p>Awakening the Dao... <span style="opacity:.5;font-size:.75rem">build v5</span></p>
     </div>
   </div>
 

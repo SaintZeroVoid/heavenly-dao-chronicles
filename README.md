@@ -20,3 +20,10 @@ Open `index.html` or deploy the folder to GitHub Pages.
 - `css/design-system.css` tokens + polish
 
 *The Heavenly Dao remembers everything.*
+
+
+## Cache issues
+If the page sticks on loading or shows an old `app.js` error:
+1. Prefer **Incognito** window
+2. Unregister service workers
+3. Confirm Network loads `js/app.v5.js`

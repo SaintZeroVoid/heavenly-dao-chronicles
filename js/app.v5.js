@@ -778,7 +778,21 @@ function renderBattle() {
       <div class="card-header">
         <h3 class="card-title">Battle Simulation AI</h3>
       </div>
-      <p style="color:var(--text-muted);margin-bottom:16px;">Pre-battle loadout, realm, techniques, experience, bloodline, and strategy. The Heavenly Dao judges the outcome.</p>
+      <p style="color:var(--text-muted);margin-bottom:16px;">Turn-based combat with stances, element advantage, skills, crits, burn/seal status, and loadout bonuses.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <button class="btn-ghost" onclick="setCombatStance('aggressive')">⚔ Aggressive</button>
+        <button class="btn-ghost" onclick="setCombatStance('balanced')">☯ Balanced</button>
+        <button class="btn-ghost" onclick="setCombatStance('defensive')">🛡 Defensive</button>
+        <button class="btn-ghost" onclick="setCombatStance('scheme')">🗡 Scheme</button>
+        <button class="btn-primary" onclick="runCombatDemo()">▶ Run Detailed Combat</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px;">Stance: <strong style="color:var(--gold);">${(state.combat&&state.combat.stance)||'balanced'}</strong> · Active power estimate: <strong style="color:var(--gold);">${getActiveChar()?rankPower(getActiveChar()):'—'}</strong></p>
+      ${state.combat && state.combat.lastLog && state.combat.lastLog.length ? `
+        <div class="ai-output" style="margin-bottom:16px;max-height:280px;overflow:auto;">
+          <strong style="color:var(--gold);">Last Combat Log</strong>
+          ${state.combat.lastLog.map(l => `<div style="padding:3px 0;border-bottom:1px solid var(--border);font-size:0.85rem;">${l}</div>`).join("")}
+        </div>
+      ` : ""}
       ${loadoutHtml}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
         <button class="btn-ghost" onclick="setLoadout('active')">Set Active Tech</button>
@@ -3557,6 +3571,7 @@ function markFounder() {
   char.isFounder = true;
   char.alive = true;
   char.generation = 1;
+  try { ensureHierarchy(); state.hierarchy.roles[char.id] = 'patriarch'; } catch(e) {}
   state.sim.lineageAlive = true;
   state.sim.extinctReason = null;
   state.sim.year = state.sim.year || 1;
@@ -3603,6 +3618,12 @@ function killCharacter(char, reason) {
   char.deathReason = reason || "fell on the cultivation road";
   char.deathYear = state.sim.year;
   try { autoSuccessorOnDeath(char); } catch(e) {}
+  try {
+    if (typeof isPatriarch === 'function' && isPatriarch(char)) {
+      state.storyChapters.push({ title: 'The Patriarch Falls Y' + (state.sim&&state.sim.year), content: char.name + ' has fallen. The hierarchy trembles. A succession storm gathers over the ' + (state.lineage.bloodName||'clan') + ' bloodline.' });
+      simLog('Patriarch death chapter written.');
+    }
+  } catch(e) {}
   state.lineage.dead = state.lineage.dead || [];
   state.lineage.dead.push({ name: char.name, reason: char.deathReason, year: state.sim.year, generation: char.generation || 1 });
   simLog(char.name + " died: " + char.deathReason);
@@ -3663,6 +3684,8 @@ function simTick() {
     if ((state.lineageTraits||[]).includes("Genius Blood")) renownBoost *= 1.1;
     if ((state.lineageTraits||[]).includes("Flame Affinity") && char.attribute === "Fire") renownBoost *= 1.08;
     let gain = Math.floor(randInt(20, 90) * (state.sim.speed || 1) * renownBoost);
+    try { ensureDynasty(); if (state.dynasty.buildings.trainingGround) gain = Math.floor(gain * (1 + 0.05 * state.dynasty.buildings.trainingGround)); if (state.dynasty.focusId === char.id) gain = Math.floor(gain * 1.12); } catch(e) {}
+    try { applyAgendaToChar(char); } catch(e) {}
     if (state.succession && state.succession.designatedId === char.id) gain = Math.floor(gain * 1.15);
     if ((state.lineageTraits||[]).includes("Short-Lived") && Math.random() > 0.995) { /* extra mortality handled below via age */ }
     char.douQi = (char.douQi || 100) + gain;
@@ -3694,6 +3717,8 @@ function simTick() {
     if (char.injured) deathChance += char.injured * 0.01;
     if ((state.lineageTraits||[]).includes("Short-Lived")) deathChance += 0.01;
     if ((state.lineageTraits||[]).includes("Iron Constitution")) deathChance *= 0.7;
+    try { ensureDynasty(); if (state.dynasty.stabilizeMonths > 0) deathChance *= 0.55; if (state.dynasty.buildings.guardPost) deathChance *= Math.max(0.7, 1 - 0.04 * state.dynasty.buildings.guardPost); } catch(e) {}
+    try { deathChance *= (typeof deathMult==='function'?deathMult():1); } catch(e) {}
     if (Math.random() < deathChance) {
       const reasons = ["killed in a resource struggle", "failed tribulation", "ambushed while traveling", "old wounds claimed their life", "perished guarding the clan", "fallen in a flame contention", "betrayed during a secret deal"];
       killCharacter(char, reasons[Math.floor(Math.random() * reasons.length)]);
@@ -3721,6 +3746,27 @@ function simTick() {
 
   // clan wealth yearly pulse
   if (state.sim.month === 1) {
+    try { recordYearlySnapshot(); } catch(e) {}
+    try { rivalTick(); } catch(e) {}
+    try { outerRebellionCheck(); prestigeTierFromRenown(); } catch(e) {}
+    try { dutyBonusesTick(); autoStipendYearly(); } catch(e) {}
+    try { ensureSimDepth(); refreshYearlyAP(); tickOrders(); if (state.sim.month===3) tradeCaravan(); checkBankruptcy(); } catch(e) {}
+    try { ensureHierarchy(); const elders = getLineageCharacters().filter(x => hierarchyPower(x) >= 3); if (elders.length && Math.random()>0.5) state.clanWealth.renown = (state.clanWealth.renown||1)+1; } catch(e) {}
+    try { if (state.sim.year % 10 === 0 && state.sim.month === 1) { simLog('Decade mark Y'+state.sim.year); try { decadeSummary(); } catch(e2) {} } } catch(e) {}
+    try {
+      ensureDynasty();
+      if (state.dynasty.debtTimer > 0) {
+        state.dynasty.debtTimer -= 12;
+        if (state.dynasty.debtTimer <= 0 && state.dynasty.debt > 0) {
+          state.clanWealth.renown = Math.max(1, (state.clanWealth.renown||1)-2);
+          simLog('Debt default! Renown damaged.');
+        }
+      }
+      if (state.dynasty.stabilizeMonths > 0) state.dynasty.stabilizeMonths = Math.max(0, state.dynasty.stabilizeMonths - 12);
+      // building upkeep
+      const up = (state.dynasty.buildings.pillRoom||0) + (state.dynasty.buildings.trainingGround||0) + (state.dynasty.buildings.guardPost||0);
+      if (up) state.clanWealth.gold = Math.max(0, (state.clanWealth.gold||0) - up * 2);
+    } catch(e) {}
     try { clanTradeYearly(); simLog("Clan vault yearly trade. Gold now " + (state.clanWealth && state.clanWealth.gold)); } catch(e) {}
     try {
       const gen = state.lineage.generations || 1;
@@ -3756,6 +3802,7 @@ function simTick() {
     state.events.push({ title: "Sim Y" + state.sim.year + " M" + state.sim.month, desc: ev });
     simLog(ev);
     try { if (offerSimChoice(ev)) { saveState(); switchView("simulation"); return; } } catch(e) {}
+    try { if (Math.random() > 0.65 && triggerSimPlusEvent()) { saveState(); switchView("simulation"); return; } } catch(e) {}
     // wealth shock
     try {
       ensureWealth();
@@ -3882,11 +3929,12 @@ function renderSimulation() {
       </div>
       <p style="color:var(--text-muted);font-size:0.9rem;">Founder: <strong style="color:var(--gold);">${founder ? founder.name : "Not set"}</strong> · Blood: ${state.lineage.bloodName || "—"} · Threat: ${state.globalThreat||1} · Tick: ${state.sim.tick||0}</p>
       <p style="color:var(--text-dim);font-size:0.82rem;margin-top:6px;">Tip: Marry spouses before forcing heirs. Renown boosts passive cultivation. Ironman blocks undo.</p>
+      ${typeof renderSimSections==='function' ? renderSimSections() : ''}
       ${state.sim.pendingChoice ? `
         <div class="pause-card" style="position:relative;margin-top:14px;width:auto;">
           <h3>Paused Event</h3>
           <p style="color:var(--text-muted);margin-bottom:12px;">${state.sim.pendingChoice.event}</p>
-          ${state.sim.pendingChoice.options.map(o => `<button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="resolveSimChoice('${o.effect}')">${o.label}</button>`).join("")}
+          ${state.sim.pendingChoice.options.map(o => `<button class="btn-primary" style="width:100%;margin-bottom:8px;" onclick="resolveSimChoice('${o.effect}')">${o.label}<br><span style="font-size:0.75rem;opacity:.85">${typeof chanceLabel==='function'?chanceLabel(o.effect):''}</span></button>`).join("")}
         </div>
       ` : ""}
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
@@ -3897,6 +3945,22 @@ function renderSimulation() {
         <button class="btn-ghost" onclick="startOnboarding()">📘 Onboarding 2-min</button>
         <button class="btn-ghost" onclick="simulateYears(10)">⏩ Simulate 10 Years</button>
         <button class="btn-ghost" onclick="balanceReadout()">📊 Balance Readout</button>
+
+        <button class="btn-ghost" onclick="setFocusCharacter()">🎯 Set Focus Character</button>
+        <button class="btn-ghost" onclick="politicalMarriage()">💍 Political Marriage</button>
+        <button class="btn-ghost" onclick="startCrisisChain()">🔥 Seasonal Crisis Chain</button>
+        <button class="btn-ghost" onclick="upgradeBuilding('pillRoom')">🏠 Pill Room</button>
+        <button class="btn-ghost" onclick="upgradeBuilding('trainingGround')">🏋️ Training Ground</button>
+        <button class="btn-ghost" onclick="upgradeBuilding('guardPost')">🏯 Guard Post</button>
+        <button class="btn-ghost" onclick="takeMerchantLoan()">💸 Take Loan</button>
+        <button class="btn-ghost" onclick="payDebt()">💳 Pay Debt</button>
+        <button class="btn-ghost" onclick="stabilizeClan()">🛡 Stabilize Clan</button>
+        <button class="btn-ghost" onclick="treasureMapUse()">🗺 Treasure Map</button>
+        <button class="btn-ghost" onclick="decadeSummary()">📘 Decade Summary</button>
+        <button class="btn-ghost" onclick="disownHeir()">🚫 Disown Heir</button>
+        <button class="btn-ghost" onclick="pinLastLog()">📌 Pin Last Log</button>
+        <button class="btn-ghost" onclick="simSpeedUntilEvent()">⏭ Speed Until Event</button>
+
       </div>
       <div class="card" style="margin-top:12px;padding:12px;">
         <h4 style="color:var(--gold);margin-bottom:8px;">Vault Ledger</h4>
@@ -3934,16 +3998,18 @@ function renderSimulation() {
         <div class="stat-box"><div class="label">Renown</div><div class="value">${(state.clanWealth&&state.clanWealth.renown)||1}</div></div>
       </div>
       <p style="color:var(--text-muted);font-size:0.85rem;margin-top:8px;">Ironman: <strong style="color:${state.lineage.ironman? 'var(--red-glow)' : 'var(--gold)'};">${state.lineage.ironman ? "ON (permanent deaths)" : "OFF"}</strong></p>
+      <p style="color:var(--text-muted);font-size:0.82rem;margin-top:6px;">Focus: ${(state.dynasty&&state.dynasty.focusId)?((state.characters.find(x=>x.id===state.dynasty.focusId)||{}).name||'?') : '—'} · Buildings P${(state.dynasty&&state.dynasty.buildings&&state.dynasty.buildings.pillRoom)||0}/T${(state.dynasty&&state.dynasty.buildings&&state.dynasty.buildings.trainingGround)||0}/G${(state.dynasty&&state.dynasty.buildings&&state.dynasty.buildings.guardPost)||0} · Debt ${(state.dynasty&&state.dynasty.debt)||0} · Stabilize ${(state.dynasty&&state.dynasty.stabilizeMonths)||0}m · Rival: ${(state.dynasty&&state.dynasty.rival&&state.dynasty.rival.name)||'—'}</p>
       <p style="color:var(--text-dim);font-size:0.82rem;margin-top:6px;">Traits: ${(state.lineageTraits||[]).join(", ") || "none"} · Tombs: ${(state.tombs||[]).length} · Successor: ${state.succession && state.succession.designatedId ? (state.characters.find(x=>x.id===state.succession.designatedId)||{}).name || state.succession.designatedId : "none"}</p>
     </div>
 
+    ${typeof renderHierarchyBoard==='function' ? renderHierarchyBoard() : ''}
     <div class="card" style="margin-bottom:16px;">
       <h3 class="card-title" style="margin-bottom:10px;">Living Lineage</h3>
       ${living.length ? living.map(c => `
         <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
           <div>
             <strong style="color:var(--gold);">${c.name}</strong>
-            <div style="font-size:0.82rem;color:var(--text-muted);">Gen ${c.generation||1} · Age ${c.age||"?"} · ${c.star} ${c.realm} · ${c.talent}${c.spouse ? " · Spouse: "+c.spouse : ""}${c.parentName ? " · Child of "+c.parentName : ""}</div>
+            <div style="font-size:0.82rem;color:var(--text-muted);">Gen ${c.generation||1} · Age ${c.age||"?"} · ${c.star} ${c.realm} · ${c.talent} · <span style="color:var(--gold);">${typeof hierarchyLabel==='function'?hierarchyLabel(c):''}</span> · Loy ${typeof loyaltyOf==='function'?loyaltyOf(c):'?'}${c.cadetBranch?' · Cadet':''}${c.education?' · Edu '+c.education:''}${c.spouse ? " · Spouse: "+c.spouse : ""}${c.parentName ? " · Child of "+c.parentName : ""}</div>
           </div>
           <button class="btn-ghost" onclick="state.currentCharacterId='${c.id}'; saveState(); switchView('character')">Select</button>
         </div>
@@ -4299,11 +4365,15 @@ function offerSimChoice(eventName) {
   state.sim.pendingChoice = { event: eventName, options: choices[key] };
   state.sim.running = false;
   if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  try { recordPauseReason(eventName); } catch(e) {}
   showToast("Simulation paused for decision");
   return true;
 }
 
 function resolveSimChoice(effect) {
+  if (String(effect).indexOf('crisis_') === 0) return resolveCrisisEffect(effect);
+  const plus = ['pill','rob','conscript','bribe','hide','flame_hunt','sell_intel','enforce_succ','split_gold','spar','tech_buy','tech_haggle'];
+  if (plus.includes(effect)) return resolveSimPlusChoice(effect);
   ensureWealth();
   const living = getLineageCharacters();
   const char = living[0] || getActiveChar();
@@ -4655,6 +4725,1641 @@ function balanceReadout() {
 }
 
 
+
+// ===== SIM UPGRADE PACK =====
+function ensureSimPlus() {
+  ensureSim();
+  ensureWealth();
+  if (!state.sim.history) state.sim.history = []; // yearly snapshots
+  if (state.sim.eventChance == null) state.sim.eventChance = 0.55;
+  if (!state.sim.legacies) state.sim.legacies = [];
+}
+
+function recordYearlySnapshot() {
+  ensureSimPlus();
+  if (state.sim.month !== 1) return;
+  const living = getLineageCharacters();
+  const snap = {
+    year: state.sim.year,
+    living: living.length,
+    gold: (state.clanWealth && state.clanWealth.gold) || 0,
+    renown: (state.clanWealth && state.clanWealth.renown) || 1,
+    gen: state.lineage.generations || 1,
+    threat: state.globalThreat || 1
+  };
+  state.sim.history.push(snap);
+  if (state.sim.history.length > 60) state.sim.history.shift();
+}
+
+function simRandomEvent() {
+  ensureSimPlus();
+  const living = getLineageCharacters();
+  if (!living.length) return null;
+  const char = living[Math.floor(Math.random() * living.length)];
+  const events = [
+    {
+      title: "Wandering Alchemist",
+      desc: "A wandering alchemist offers aid to " + char.name + ".",
+      choices: [
+        { label: "Buy a foundation pill (-25 gold)", effect: "pill" },
+        { label: "Refuse politely", effect: "safe" },
+        { label: "Rob the alchemist", effect: "rob" }
+      ]
+    },
+    {
+      title: "Border Conscription",
+      desc: "Empire officers demand a cultivator for border duty.",
+      choices: [
+        { label: "Send " + char.name + " (gain renown, risk injury)", effect: "conscript" },
+        { label: "Pay exemption (-40 gold)", effect: "bribe" },
+        { label: "Hide the clan geniuses", effect: "hide" }
+      ]
+    },
+    {
+      title: "Flame Rumor",
+      desc: "A ranked flame fluctuation is whispered in " + (state.currentRegion || "the region") + ".",
+      choices: [
+        { label: "Investigate personally", effect: "flame_hunt" },
+        { label: "Sell the intel (+gold)", effect: "sell_intel" },
+        { label: "Ignore", effect: "safe" }
+      ]
+    },
+    {
+      title: "Heir Dispute",
+      desc: "Younger members argue over succession and resources.",
+      choices: [
+        { label: "Enforce designated successor", effect: "enforce_succ" },
+        { label: "Split vault gifts", effect: "split_gold" },
+        { label: "Let them spar it out", effect: "spar" }
+      ]
+    },
+    {
+      title: "Relic Merchant",
+      desc: "A merchant offers a damaged technique jade.",
+      choices: [
+        { label: "Buy it (-35 gold)", effect: "tech_buy" },
+        { label: "Haggle (-20 gold)", effect: "tech_haggle" },
+        { label: "Decline", effect: "safe" }
+      ]
+    }
+  ];
+  return events[Math.floor(Math.random() * events.length)];
+}
+
+function resolveSimPlusChoice(effect) {
+  ensureSimPlus();
+  const living = getLineageCharacters();
+  const char = living[0] || getActiveChar();
+  let msg = "Resolved: " + effect;
+  if (effect === "pill" && char) {
+    if ((state.clanWealth.gold || 0) < 25) msg = "Not enough gold for the pill.";
+    else {
+      state.clanWealth.gold -= 25;
+      char.foundation = Math.min(100, (char.foundation || 40) + randInt(3, 8));
+      char.douQi = (char.douQi || 100) + randInt(100, 250);
+      msg = char.name + " refined a foundation pill.";
+      try { ledgerAdd("Foundation pill -25", -25); } catch(e) {}
+    }
+  } else if (effect === "rob") {
+    state.clanWealth.gold = (state.clanWealth.gold || 0) + randInt(10, 40);
+    if (char) char.wanted = Math.min(5, (char.wanted || 0) + 1);
+    msg = "The clan seized goods — and heat.";
+  } else if (effect === "conscript" && char) {
+    state.clanWealth.renown = (state.clanWealth.renown || 1) + 1;
+    if (Math.random() > 0.45) applyInjury(char, 1);
+    char.experience = Math.min(100, (char.experience || 20) + 5);
+    msg = char.name + " served on the border.";
+  } else if (effect === "bribe") {
+    if ((state.clanWealth.gold || 0) >= 40) {
+      state.clanWealth.gold -= 40;
+      msg = "Exemption purchased.";
+      try { ledgerAdd("Conscription bribe -40", -40); } catch(e) {}
+    } else msg = "Could not afford exemption.";
+  } else if (effect === "hide") {
+    msg = "The clan kept its geniuses out of sight this season.";
+  } else if (effect === "flame_hunt" && char) {
+    char.experience = Math.min(100, (char.experience || 20) + 6);
+    if (Math.random() > 0.6) {
+      state.flames = state.flames || [];
+      state.flames.push(generateFlame());
+      msg = char.name + " returned with flame resonance fortune.";
+    } else {
+      if (Math.random() > 0.5) applyInjury(char, 1);
+      msg = char.name + " found only danger and rumor-ash.";
+    }
+  } else if (effect === "sell_intel") {
+    state.clanWealth.gold = (state.clanWealth.gold || 0) + randInt(20, 55);
+    msg = "Intel sold to rival seekers.";
+    try { ledgerAdd("Sold flame intel", 30); } catch(e) {}
+  } else if (effect === "enforce_succ") {
+    if (state.succession && state.succession.designatedId) msg = "Successor authority enforced.";
+    else if (char) {
+      state.succession = state.succession || {};
+      state.succession.designatedId = char.id;
+      msg = char.name + " confirmed as successor.";
+    }
+  } else if (effect === "split_gold") {
+    const gift = Math.min(30, Math.floor(((state.clanWealth && state.clanWealth.gold) || 0) * 0.1));
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - gift);
+    msg = "Vault gifts calmed the dispute (-" + gift + " gold).";
+  } else if (effect === "spar" && living.length >= 2) {
+    applyInjury(living[0], 1);
+    living[1].experience = Math.min(100, (living[1].experience || 20) + 3);
+    msg = "A clan spar spilled blood and insight.";
+  } else if (effect === "tech_buy" || effect === "tech_haggle") {
+    const cost = effect === "tech_buy" ? 35 : 20;
+    if ((state.clanWealth.gold || 0) >= cost) {
+      state.clanWealth.gold -= cost;
+      state.techniques = state.techniques || [];
+      state.techniques.push(generateTechnique());
+      msg = "A technique jade entered the clan archive (-" + cost + ").";
+    } else msg = "Not enough gold for the jade.";
+  } else {
+    msg = "The clan chose caution.";
+  }
+  simLog(msg);
+  try { recordPauseChoice((state.sim.pendingChoice && state.sim.pendingChoice.event) || "event", effect, msg); } catch(e) {}
+  state.sim.pendingChoice = null;
+  saveState();
+  showToast(msg);
+  switchView("simulation");
+}
+
+function triggerSimPlusEvent() {
+  const ev = simRandomEvent();
+  if (!ev) return false;
+  ensurePause();
+  if (state.sim.watchOnly || state.sim.pauseOnEvents === false) {
+    // auto-resolve safe path
+    simLog(ev.title + ": " + ev.desc + " (auto-passed)");
+    return false;
+  }
+  state.sim.pendingChoice = {
+    event: ev.title + " — " + ev.desc,
+    options: ev.choices.map(c => ({ label: c.label, effect: c.effect }))
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  try { recordPauseReason(ev.title); } catch(e) {}
+  showToast("Simulation paused: " + ev.title);
+  return true;
+}
+
+function renderSimHistorySpark() {
+  const h = (state.sim && state.sim.history) || [];
+  if (h.length < 2) return '<p style="color:var(--text-dim);font-size:0.82rem;">Yearly history will appear as decades pass.</p>';
+  const maxG = Math.max(...h.map(x => x.gold), 1);
+  const bars = h.slice(-20).map(x => {
+    const ht = Math.max(4, Math.round((x.gold / maxG) * 40));
+    return `<div title="Y${x.year} gold ${x.gold} living ${x.living}" style="width:10px;height:${ht}px;background:linear-gradient(180deg,var(--ds-gold),#8a7010);border-radius:2px 2px 0 0;"></div>`;
+  }).join("");
+  return `<div style="display:flex;align-items:flex-end;gap:3px;height:48px;margin-top:8px;">${bars}</div>
+    <p style="color:var(--text-dim);font-size:0.78rem;margin-top:4px;">Vault gold by year (last ${Math.min(20,h.length)} snapshots)</p>`;
+}
+
+
+
+// ===== COMBAT MECHANICS ENGINE =====
+const COMBAT_STANCES = {
+  aggressive: { label: "Aggressive", atk: 1.15, def: 0.9, crit: 0.08 },
+  balanced: { label: "Balanced", atk: 1.0, def: 1.0, crit: 0.05 },
+  defensive: { label: "Defensive", atk: 0.9, def: 1.2, crit: 0.03 },
+  scheme: { label: "Scheme", atk: 0.95, def: 0.95, crit: 0.12 }
+};
+
+const ELEMENT_MATRIX = {
+  Fire: { strong: ["Wind", "Ice"], weak: ["Water", "Earth"] },
+  Water: { strong: ["Fire", "Earth"], weak: ["Thunder", "Wind"] },
+  Earth: { strong: ["Thunder", "Water"], weak: ["Wind", "Fire"] },
+  Wind: { strong: ["Earth", "Water"], weak: ["Fire", "Thunder"] },
+  Thunder: { strong: ["Water", "Wind"], weak: ["Earth", "Ice"] },
+  Ice: { strong: ["Fire", "Wind"], weak: ["Thunder", "Earth"] },
+  Darkness: { strong: ["Light"], weak: ["Light"] },
+  Light: { strong: ["Darkness"], weak: ["Darkness"] }
+};
+
+function ensureCombatState() {
+  if (!state.combat) {
+    state.combat = {
+      stance: "balanced",
+      lastLog: [],
+      lastResult: null,
+      combo: 0
+    };
+  }
+}
+
+function setCombatStance(s) {
+  ensureCombatState();
+  if (!COMBAT_STANCES[s]) return showToast("Unknown stance");
+  state.combat.stance = s;
+  saveState();
+  showToast("Stance: " + COMBAT_STANCES[s].label);
+  switchView("battle");
+}
+
+function rankPower(char) {
+  if (!char) return 10;
+  const ranks = (typeof DOU_QI_RANKS !== "undefined" ? DOU_QI_RANKS : []).map(r => r.name);
+  const ri = Math.max(0, ranks.indexOf(char.realm));
+  const stars = (typeof STARS !== "undefined" ? STARS : []);
+  const si = Math.max(0, stars.indexOf(char.star));
+  let p = 20 + ri * 18 + si * 3;
+  p += (char.experience || 0) * 0.35;
+  p += (char.foundation || 0) * 0.25;
+  p += (char.control || 30) * 0.15;
+  if (char.talent === "Against the Heavens") p *= 1.25;
+  else if (char.talent === "Monster") p *= 1.15;
+  else if (char.talent === "Genius") p *= 1.08;
+  if (char.injured) p *= Math.max(0.55, 1 - char.injured * 0.12);
+  if (char.boundFlame) p *= 1.08;
+  if (char.beastAssist) p *= 1.05;
+  if (state.techLoadout && state.techLoadout.active) p *= 1.06;
+  if (state.techLoadout && state.techLoadout.passive) p *= 1.03;
+  return Math.round(p);
+}
+
+function elementMod(att, def) {
+  if (!att || !def) return 1;
+  const m = ELEMENT_MATRIX[att];
+  if (!m) return 1;
+  if ((m.strong || []).includes(def)) return 1.2;
+  if ((m.weak || []).includes(def)) return 0.85;
+  return 1;
+}
+
+function rollSkill(name, power) {
+  const skills = [
+    { name: "Dou Qi Burst", mult: 1.1 },
+    { name: "Heavenly Flame Flicker", mult: 1.25, needFlame: true },
+    { name: "Beast Companion Strike", mult: 1.15, needBeast: true },
+    { name: "Technique Execution", mult: 1.2, needTech: true },
+    { name: "Soul Pressure", mult: 1.08 },
+    { name: "Guarding Circulation", mult: 0.5, defensive: true }
+  ];
+  return skills;
+}
+
+function simulateDetailedBattle(a, b, options) {
+  ensureCombatState();
+  options = options || {};
+  const stance = COMBAT_STANCES[state.combat.stance || "balanced"];
+  const log = [];
+  let hpA = 100 + Math.floor(rankPower(a) * 0.4);
+  let hpB = 100 + Math.floor(rankPower(b) * 0.4);
+  const maxA = hpA, maxB = hpB;
+  let atkA = rankPower(a) * stance.atk * elementMod(a.attribute, b.attribute);
+  let atkB = rankPower(b) * 1.0 * elementMod(b.attribute, a.attribute);
+  let defA = rankPower(a) * 0.35 * stance.def;
+  let defB = rankPower(b) * 0.35;
+  const statusA = [];
+  const statusB = [];
+  let combo = 0;
+
+  log.push("Battle start: " + a.name + " (" + (a.star||"?") + " " + (a.realm||"?") + ", " + stance.label + ") vs " + b.name + " (" + (b.star||"?") + " " + (b.realm||"?") + ")");
+  log.push("Element: " + (a.attribute||"?") + " vs " + (b.attribute||"?") + " | Loadout active: " + ((state.techLoadout && state.techLoadout.active) || a.technique || "none"));
+
+  const turns = 8 + Math.floor(Math.random() * 5);
+  for (let t = 1; t <= turns; t++) {
+    if (hpA <= 0 || hpB <= 0) break;
+
+    // status ticks
+    if (statusB.includes("burn")) {
+      const burn = randInt(3, 8);
+      hpB -= burn;
+      log.push("Turn " + t + ": Burn sears " + b.name + " (-" + burn + ")");
+    }
+    if (statusA.includes("seal")) {
+      log.push("Turn " + t + ": " + a.name + " struggles under seal.");
+    }
+
+    // A acts
+    if (!statusA.includes("seal") || Math.random() > 0.5) {
+      let skill = "Basic Strike";
+      let mult = 1;
+      const r = Math.random();
+      if (r > 0.82 && a.boundFlame) { skill = "Heavenly Flame Flicker"; mult = 1.3; if (!statusB.includes("burn")) statusB.push("burn"); }
+      else if (r > 0.7 && a.beastAssist) { skill = "Beast Assist"; mult = 1.18; }
+      else if (r > 0.55 && (state.techLoadout && state.techLoadout.active || a.technique)) { skill = "Technique Execution"; mult = 1.22; }
+      else if (r > 0.4) { skill = "Dou Qi Burst"; mult = 1.1; }
+
+      let raw = atkA * mult * (0.85 + Math.random() * 0.3);
+      const crit = Math.random() < stance.crit + (combo * 0.02);
+      if (crit) { raw *= 1.45; combo += 1; }
+      else combo = Math.max(0, combo - 1);
+      const dmg = Math.max(4, Math.round(raw - defB * (0.6 + Math.random() * 0.3)));
+      hpB -= dmg;
+      log.push("Turn " + t + ": " + a.name + " uses " + skill + (crit ? " [CRIT]" : "") + " → " + dmg + " dmg. " + b.name + " HP " + Math.max(0, hpB) + "/" + maxB);
+    }
+
+    if (hpB <= 0) break;
+
+    // B acts
+    let rawB = atkB * (0.85 + Math.random() * 0.3);
+    if (Math.random() > 0.85) { rawB *= 1.25; log.push("Turn " + t + ": " + b.name + " unleashes a finishing intent!"); }
+    const dmgB = Math.max(3, Math.round(rawB - defA * (0.6 + Math.random() * 0.3)));
+    hpA -= dmgB;
+    log.push("Turn " + t + ": " + b.name + " counters → " + dmgB + " dmg. " + a.name + " HP " + Math.max(0, hpA) + "/" + maxA);
+
+    if (Math.random() > 0.9) {
+      statusA.push("seal");
+      log.push("Turn " + t + ": A sealing technique briefly locks " + a.name + "'s meridians.");
+    }
+  }
+
+  const win = hpA > hpB && hpA > 0;
+  const draw = hpA <= 0 && hpB <= 0;
+  let summary;
+  if (draw) summary = "Both collapse. A pyrrhic draw.";
+  else if (win) summary = a.name + " prevails.";
+  else summary = b.name + " prevails.";
+
+  log.push("---");
+  log.push(summary + " Final HP " + a.name + " " + Math.max(0,hpA) + " | " + b.name + " " + Math.max(0,hpB));
+
+  // apply consequences
+  if (!win && !draw && Math.random() > 0.4) applyInjury(a, 1);
+  if (win) {
+    a.experience = Math.min(100, (a.experience || 20) + randInt(3, 8));
+    try { bumpStat("battles", 1); bumpStat("wins", 1); } catch(e) {}
+  } else {
+    try { bumpStat("battles", 1); } catch(e) {}
+  }
+
+  const result = {
+    winner: draw ? null : (win ? a.name : b.name),
+    win,
+    draw,
+    log,
+    hpA: Math.max(0, hpA),
+    hpB: Math.max(0, hpB),
+    stance: stance.label
+  };
+  state.combat.lastLog = log;
+  state.combat.lastResult = result;
+  state.battleReplays = state.battleReplays || [];
+  state.battleReplays.unshift({ t: Date.now(), summary: summary, log: log.slice() });
+  if (state.battleReplays.length > 15) state.battleReplays.pop();
+  return result;
+}
+
+function runCombatDemo() {
+  const chars = state.characters || [];
+  if (chars.length < 1) return showToast("Create a character first");
+  let a = getActiveChar() || chars[0];
+  let b = chars.find(c => c.id !== a.id);
+  if (!b) {
+    b = generateCharacter(a.realm || "Dou Zhe");
+    b.name = (b.name || "Rival") + " (Sparring Shadow)";
+  }
+  const res = simulateDetailedBattle(a, b);
+  saveState();
+  switchView("battle");
+  showToast(res.summary || (res.win ? "Victory" : "Defeat"));
+}
+
+
+
+// ===== FULL SIM SUGGESTION PACK (1-25) =====
+function ensureDynasty() {
+  ensureSimPlus && ensureSimPlus();
+  ensureSim();
+  ensureWealth();
+  if (!state.dynasty) {
+    state.dynasty = {
+      focusId: null,
+      buildings: { pillRoom: 0, trainingGround: 0, guardPost: 0 },
+      debt: 0,
+      debtTimer: 0,
+      stabilizeMonths: 0,
+      rival: null,
+      pinnedLog: [],
+      crisis: null,
+      crisisStep: 0
+    };
+  }
+  if (!state.dynasty.rival) {
+    state.dynasty.rival = { name: generateName() + " Clan", renown: 2, living: 3, hostility: 1 };
+  }
+}
+
+function setFocusCharacter() {
+  ensureDynasty();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select a living character");
+  state.dynasty.focusId = char.id;
+  simLog(char.name + " set as clan focus (training/vault/adventure priority)");
+  saveState();
+  showToast("Focus: " + char.name);
+  switchView("simulation");
+}
+
+function getFocusChar() {
+  ensureDynasty();
+  if (!state.dynasty.focusId) return getLineageCharacters()[0] || getActiveChar();
+  return (state.characters || []).find(c => c.id === state.dynasty.focusId && c.alive !== false) || getLineageCharacters()[0];
+}
+
+function upgradeBuilding(type) {
+  ensureDynasty();
+  const costs = { pillRoom: 50, trainingGround: 45, guardPost: 40 };
+  const cost = costs[type];
+  if (cost == null) return;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  state.clanWealth.gold -= cost;
+  state.dynasty.buildings[type] = (state.dynasty.buildings[type] || 0) + 1;
+  try { ledgerAdd("Built/upgraded " + type + " -" + cost, -cost); } catch(e) {}
+  simLog("Clan structure improved: " + type + " rank " + state.dynasty.buildings[type]);
+  saveState();
+  showToast(type + " → rank " + state.dynasty.buildings[type]);
+  switchView("simulation");
+}
+
+function takeMerchantLoan() {
+  try { ensureHierDepth(); } catch(e) {}
+  if (typeof requirePatriarch === 'function' && !requirePatriarch('take loans')) return;
+  ensureDynasty();
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + 80;
+  state.dynasty.debt += 100;
+  state.dynasty.debtTimer = 24; // months
+  simLog("Merchant loan taken +80 gold (owe 100 within 24 months)");
+  try { ledgerAdd("Loan +80", 80); } catch(e) {}
+  saveState();
+  showToast("Loan taken — debt 100");
+  switchView("simulation");
+}
+
+function payDebt() {
+  ensureDynasty();
+  const d = state.dynasty.debt || 0;
+  if (!d) return showToast("No debt");
+  if ((state.clanWealth.gold || 0) < d) return showToast("Need " + d + " gold");
+  state.clanWealth.gold -= d;
+  state.dynasty.debt = 0;
+  state.dynasty.debtTimer = 0;
+  simLog("Clan debt cleared (-" + d + " gold)");
+  saveState();
+  showToast("Debt paid");
+  switchView("simulation");
+}
+
+function stabilizeClan() {
+  ensureDynasty();
+  if ((state.clanWealth.gold || 0) < 60) return showToast("Need 60 gold");
+  state.clanWealth.gold -= 60;
+  state.dynasty.stabilizeMonths = 12;
+  simLog("Stabilize measures funded — death risk reduced for 12 months");
+  saveState();
+  showToast("Clan stabilized 12 months");
+  switchView("simulation");
+}
+
+function pinLastLog() {
+  ensureDynasty();
+  const last = (state.sim.log || [])[0];
+  if (!last) return showToast("No log lines");
+  state.dynasty.pinnedLog.unshift(last);
+  if (state.dynasty.pinnedLog.length > 12) state.dynasty.pinnedLog.pop();
+  saveState();
+  showToast("Pinned log line");
+}
+
+function startCrisisChain() {
+  try { ensureHierDepth(); } catch(e) {}
+  if (typeof requirePatriarch === 'function' && !requirePatriarch('declare crisis war path')) return;
+  ensureDynasty();
+  state.dynasty.crisis = "famine";
+  state.dynasty.crisisStep = 1;
+  state.sim.pendingChoice = {
+    event: "Seasonal Crisis I — Famine: Crops fail near the clan holdings.",
+    options: [
+      { label: "Open the vault to feed people (-50 gold)", effect: "crisis_feed" },
+      { label: "Ignore the weak (renown loss)", effect: "crisis_ignore" },
+      { label: "Migrate a branch family", effect: "crisis_migrate" }
+    ]
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  showToast("Crisis: Famine");
+  switchView("simulation");
+}
+
+function resolveCrisisEffect(effect) {
+  ensureDynasty();
+  let msg = effect;
+  if (effect === "crisis_feed") {
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 50);
+    state.clanWealth.renown = (state.clanWealth.renown || 1) + 1;
+    state.dynasty.crisis = "migration";
+    msg = "Vault opened. People endure. Migration pressures rise next.";
+  } else if (effect === "crisis_ignore") {
+    state.clanWealth.renown = Math.max(1, (state.clanWealth.renown || 1) - 1);
+    state.dynasty.crisis = "war";
+    msg = "Suffering breeds bandits. War looms.";
+  } else if (effect === "crisis_migrate") {
+    state.dynasty.crisis = "migration";
+    msg = "A branch moves. The main bloodline holds.";
+  } else if (effect === "crisis_war_fight") {
+    const focus = getFocusChar();
+    if (focus) {
+      const foe = generateCharacter(focus.realm || "Dou Zhe");
+      foe.name = state.dynasty.rival.name + " Champion";
+      if (typeof simulateDetailedBattle === "function") {
+        const res = simulateDetailedBattle(focus, foe);
+        msg = res.win ? "Clan war won." : "Clan war lost — reparations.";
+        if (!res.win) state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 40);
+        else state.clanWealth.renown = (state.clanWealth.renown || 1) + 2;
+      } else msg = "War resolved in blood.";
+    }
+    state.dynasty.crisis = null;
+  } else if (effect === "crisis_war_pay") {
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 70);
+    state.dynasty.crisis = null;
+    msg = "Tribute bought a temporary peace.";
+  } else if (effect === "crisis_settle") {
+    state.currentRegion = state.currentRegion || "Outerland";
+    state.clanWealth.renown = (state.clanWealth.renown || 1) + 1;
+    state.dynasty.crisis = "war";
+    msg = "Migration complete — rivals contest the new land.";
+  }
+  simLog(msg);
+  state.sim.pendingChoice = null;
+  // chain next crisis pause
+  if (state.dynasty.crisis === "migration") {
+    state.sim.pendingChoice = {
+      event: "Seasonal Crisis II — Migration: Displaced clans crowd the roads.",
+      options: [
+        { label: "Settle them under your banner", effect: "crisis_settle" },
+        { label: "Drive them off", effect: "crisis_ignore" }
+      ]
+    };
+  } else if (state.dynasty.crisis === "war") {
+    state.sim.pendingChoice = {
+      event: "Seasonal Crisis III — War: " + state.dynasty.rival.name + " moves against you.",
+      options: [
+        { label: "Fight (detailed combat)", effect: "crisis_war_fight" },
+        { label: "Pay tribute (-70 gold)", effect: "crisis_war_pay" }
+      ]
+    };
+  }
+  saveState();
+  showToast(msg);
+  switchView("simulation");
+}
+
+function politicalMarriage() {
+  ensureDynasty();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select living character");
+  if (char.spouse) return showToast("Already married");
+  if ((state.clanWealth.gold || 0) < 30) return showToast("Need 30 gold");
+  state.clanWealth.gold -= 30;
+  char.spouse = generateName() + " (Political)";
+  char.marriageBonus = 0.03;
+  state.clanWealth.renown = (state.clanWealth.renown || 1) + 2;
+  simLog(char.name + " entered a political marriage. Renown up, strings attached.");
+  saveState();
+  showToast("Political marriage arranged");
+  switchView("simulation");
+}
+
+function disownHeir() {
+  try { ensureHierDepth(); } catch(e) {}
+  if (typeof requirePatriarch === 'function' && !requirePatriarch('disown heirs')) return;
+  const char = getActiveChar();
+  if (!char || !char.isHeir) return showToast("Select an heir");
+  char.alive = false;
+  char.deathReason = "disowned and exiled from the blood register";
+  char.deathYear = state.sim.year;
+  state.lineage.dead = state.lineage.dead || [];
+  state.lineage.dead.push({ name: char.name, reason: char.deathReason, year: state.sim.year, generation: char.generation || 1 });
+  simLog(char.name + " was disowned.");
+  try { autoSuccessorOnDeath(char); } catch(e) {}
+  try {
+    if (typeof isPatriarch === 'function' && isPatriarch(char)) {
+      state.storyChapters.push({ title: 'The Patriarch Falls Y' + (state.sim&&state.sim.year), content: char.name + ' has fallen. The hierarchy trembles. A succession storm gathers over the ' + (state.lineage.bloodName||'clan') + ' bloodline.' });
+      simLog('Patriarch death chapter written.');
+    }
+  } catch(e) {}
+  saveState();
+  showToast("Heir disowned");
+  switchView("simulation");
+}
+
+function decadeSummary() {
+  ensureDynasty();
+  const living = getLineageCharacters();
+  const dead = (state.lineage.dead || []).filter(d => d.year >= (state.sim.year - 10));
+  const peak = living.slice().sort((a,b) => rankPower(b) - rankPower(a))[0];
+  const text = "Decade Report (Y" + Math.max(1, state.sim.year - 10) + "–Y" + state.sim.year + ")\\n\\nLiving: " + living.length +
+    "\\nRecent deaths: " + dead.length +
+    "\\nPeak member: " + (peak ? peak.name + " " + peak.star + " " + peak.realm : "—") +
+    "\\nGold: " + ((state.clanWealth && state.clanWealth.gold) || 0) +
+    "\\nRenown: " + ((state.clanWealth && state.clanWealth.renown) || 1) +
+    "\\nRival: " + state.dynasty.rival.name + " (renown " + state.dynasty.rival.renown + ")";
+  state.storyChapters.push({ title: "Decade Chronicle Y" + state.sim.year, content: text.replace(/\\n/g, "\n") });
+  simLog("Decade summary written into story log");
+  saveState();
+  showToast("Decade summary written");
+  switchView("story");
+}
+
+function rivalTick() {
+  ensureDynasty();
+  const r = state.dynasty.rival;
+  r.renown = Math.max(1, (r.renown || 1) + (Math.random() > 0.5 ? 1 : 0));
+  r.living = Math.max(1, (r.living || 2) + (Math.random() > 0.7 ? 1 : (Math.random() > 0.85 ? -1 : 0)));
+  if ((state.clanWealth.renown || 1) + 3 < r.renown && Math.random() > 0.85) {
+    simLog(r.name + " overtakes you in continental whispers.");
+  }
+}
+
+function treasureMapUse() {
+  ensureDynasty();
+  if ((state.clanWealth.gold || 0) < 15) return showToast("Need 15 gold to fund expedition");
+  state.clanWealth.gold -= 15;
+  const focus = getFocusChar();
+  if (Math.random() > 0.4) {
+    state.clanWealth.gold += randInt(20, 70);
+    if (focus) focus.experience = Math.min(100, (focus.experience || 20) + 4);
+    simLog("Treasure map expedition returned with gains.");
+    showToast("Expedition success");
+  } else {
+    if (focus && Math.random() > 0.5) applyInjury(focus, 1);
+    simLog("Treasure map led to an empty tomb and ambush.");
+    showToast("Expedition failed");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function simSpeedUntilEvent() {
+  ensureDynasty();
+  if (!state.lineage.founderId) return showToast("Set founder first");
+  state.sim.pauseOnEvents = true;
+  state.sim.watchOnly = false;
+  state.sim.running = true;
+  let guard = 0;
+  while (state.sim.running && !state.sim.pendingChoice && guard < 120) {
+    try { simTick(); } catch(e) { break; }
+    guard++;
+  }
+  saveState();
+  showToast(state.sim.pendingChoice ? "Paused on event" : "Ran " + guard + " months");
+  switchView("simulation");
+}
+
+
+
+// ===== CLAN HIERARCHY SYSTEM =====
+const HIERARCHY_RANKS = [
+  { id: "patriarch", label: "Patriarch / Matriarch", power: 5 },
+  { id: "grand_elder", label: "Grand Elder", power: 4 },
+  { id: "elder", label: "Elder", power: 3 },
+  { id: "core", label: "Core Disciple", power: 2 },
+  { id: "inner", label: "Inner Member", power: 1 },
+  { id: "outer", label: "Outer Member", power: 0 }
+];
+
+function ensureHierarchy() {
+  ensureDynasty && ensureDynasty();
+  ensureSim();
+  if (!state.hierarchy) {
+    state.hierarchy = {
+      roles: {}, // charId -> rank id
+      laws: ["Obey the Patriarch", "Protect the blood name", "Contribute yearly"],
+      favor: {} // charId -> number
+    };
+  }
+}
+
+function hierarchyLabel(char) {
+  ensureHierarchy();
+  if (!char) return "—";
+  const rid = state.hierarchy.roles[char.id];
+  const r = HIERARCHY_RANKS.find(x => x.id === rid);
+  if (r) return r.label;
+  if (char.isFounder) return "Patriarch / Matriarch";
+  if (char.isHeir) return "Core Disciple";
+  return "Inner Member";
+}
+
+function hierarchyPower(char) {
+  ensureHierarchy();
+  if (!char) return 0;
+  const rid = state.hierarchy.roles[char.id];
+  const r = HIERARCHY_RANKS.find(x => x.id === rid);
+  if (r) return r.power;
+  if (char.isFounder) return 5;
+  if (state.succession && state.succession.designatedId === char.id) return 4;
+  if (char.isHeir) return 2;
+  return 1;
+}
+
+function assignHierarchyRank(rankId) {
+  ensureHierarchy();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select a living member");
+  if (!HIERARCHY_RANKS.find(r => r.id === rankId)) return showToast("Invalid rank");
+  // only one patriarch
+  if (rankId === "patriarch") {
+    Object.keys(state.hierarchy.roles).forEach(id => {
+      if (state.hierarchy.roles[id] === "patriarch") state.hierarchy.roles[id] = "grand_elder";
+    });
+  }
+  state.hierarchy.roles[char.id] = rankId;
+  if (rankId === "patriarch") {
+    state.lineage.founderId = state.lineage.founderId || char.id;
+    char.isFounder = true;
+  }
+  simLog(char.name + " appointed as " + hierarchyLabel(char));
+  saveState();
+  showToast(char.name + " → " + hierarchyLabel(char));
+  switchView("simulation");
+}
+
+function autoOrganizeHierarchy() {
+  ensureHierarchy();
+  const living = getLineageCharacters().slice().sort((a, b) => {
+    const ga = (b.generation || 1) - (a.generation || 1);
+    if (ga) return (a.generation || 1) - (b.generation || 1); // lower gen first
+    return (typeof rankPower === "function" ? rankPower(b) - rankPower(a) : 0);
+  });
+  if (!living.length) return showToast("No living members");
+  // patriarch = founder or strongest gen1
+  const founder = living.find(c => c.isFounder) || living[0];
+  state.hierarchy.roles[founder.id] = "patriarch";
+  const rest = living.filter(c => c.id !== founder.id);
+  rest.forEach((c, i) => {
+    if (state.succession && state.succession.designatedId === c.id) state.hierarchy.roles[c.id] = "grand_elder";
+    else if (i < 2) state.hierarchy.roles[c.id] = "elder";
+    else if (i < 5) state.hierarchy.roles[c.id] = "core";
+    else if (i < 10) state.hierarchy.roles[c.id] = "inner";
+    else state.hierarchy.roles[c.id] = "outer";
+  });
+  simLog("Clan hierarchy auto-organized under " + founder.name);
+  saveState();
+  showToast("Hierarchy organized");
+  switchView("simulation");
+}
+
+function promoteByMerit() {
+  ensureHierarchy();
+  const living = getLineageCharacters();
+  if (living.length < 2) return showToast("Need more members");
+  const sorted = living.slice().sort((a, b) => (typeof rankPower === "function" ? rankPower(b) - rankPower(a) : 0));
+  const top = sorted[0];
+  const cur = state.hierarchy.roles[top.id];
+  const order = ["outer","inner","core","elder","grand_elder","patriarch"];
+  const idx = Math.max(0, order.indexOf(cur || "inner"));
+  if (idx >= order.length - 1) return showToast(top.name + " already at peak rank");
+  const next = order[idx + 1];
+  if (next === "patriarch") {
+    assignHierarchyRank("patriarch");
+    state.currentCharacterId = top.id;
+  } else {
+    state.hierarchy.roles[top.id] = next;
+    simLog(top.name + " promoted by merit to " + hierarchyLabel(top));
+  }
+  saveState();
+  showToast("Promoted: " + top.name);
+  switchView("simulation");
+}
+
+function hierarchyTribute() {
+  ensureHierarchy();
+  const living = getLineageCharacters();
+  let gain = 0;
+  living.forEach(c => {
+    const p = hierarchyPower(c);
+    const pay = Math.max(1, 5 - p); // outer pays more relative duty
+    gain += pay;
+  });
+  gain = Math.floor(gain * (1 + ((state.clanWealth.renown || 1) * 0.05)));
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + gain;
+  simLog("Hierarchy tribute collected: +" + gain + " gold");
+  try { ledgerAdd("Hierarchy tribute +" + gain, gain); } catch(e) {}
+  saveState();
+  showToast("Tribute +" + gain);
+  switchView("simulation");
+}
+
+function renderHierarchyBoard() {
+  ensureHierarchy();
+  const living = getLineageCharacters();
+  const groups = {};
+  HIERARCHY_RANKS.forEach(r => groups[r.id] = []);
+  living.forEach(c => {
+    if (state.hierarchy.filter === 'outer' && state.hierarchy.roles[c.id] !== 'outer') return;
+    if (state.hierarchy.filter === 'elder' && hierarchyPower(c) < 3) return;
+    let rid = state.hierarchy.roles[c.id];
+    if (!rid) {
+      if (c.isFounder) rid = "patriarch";
+      else if (state.succession && state.succession.designatedId === c.id) rid = "grand_elder";
+      else if (c.isHeir) rid = "core";
+      else rid = "inner";
+    }
+    if (!groups[rid]) groups[rid] = [];
+    groups[rid].push(c);
+  });
+  let html = '<div class="card" style="margin-bottom:16px;"><h3 class="card-title" style="margin-bottom:10px;">Clan Hierarchy</h3>';
+  HIERARCHY_RANKS.forEach(r => {
+    const list = groups[r.id] || [];
+    html += `<div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+      <strong style="color:var(--gold);">${r.label}</strong>
+      <span style="color:var(--text-dim);font-size:0.8rem;"> (${list.length})</span>
+      <div style="margin-top:6px;">${list.length ? list.map(c =>
+        `<span class="badge badge-blue" style="margin:2px;cursor:pointer;" onclick="state.currentCharacterId='${c.id}';saveState();switchView('character')">${c.name}</span>`
+      ).join("") : '<span style="color:var(--text-dim);font-size:0.82rem;">Vacant</span>'}</div>
+    </div>`;
+  });
+  html += `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+    <button class="btn-ghost" onclick="assignHierarchyRank('patriarch')">Make Patriarch</button>
+    <button class="btn-ghost" onclick="assignHierarchyRankSafe('grand_elder')">Make Grand Elder</button>
+    <button class="btn-ghost" onclick="assignHierarchyRankSafe('elder')">Make Elder</button>
+    <button class="btn-ghost" onclick="assignHierarchyRank('core')">Make Core</button>
+    <button class="btn-ghost" onclick="assignHierarchyRank('inner')">Make Inner</button>
+    <button class="btn-ghost" onclick="assignHierarchyRank('outer')">Make Outer</button>
+    <button class="btn-primary" onclick="autoOrganizeHierarchy()">Auto-Organize</button>
+    <button class="btn-ghost" onclick="promoteByMerit()">Promote by Merit</button>
+    <button class="btn-ghost" onclick="hierarchyTribute()">Collect Tribute</button>
+    <button class="btn-ghost" onclick="assignDuty('vaultkeeper')">Duty: Vaultkeeper</button>
+    <button class="btn-ghost" onclick="assignDuty('warleader')">Duty: War Leader</button>
+    <button class="btn-ghost" onclick="assignDuty('diplomat')">Duty: Diplomat</button>
+    <button class="btn-ghost" onclick="rankChallengeDuel()">Rank Challenge Duel</button>
+    <button class="btn-ghost" onclick="successionRitual()">Succession Ritual</button>
+    <button class="btn-ghost" onclick="corruptionScandal()">Corruption Scandal</button>
+    <button class="btn-ghost" onclick="honorBanquet()">Honor Banquet</button>
+    <button class="btn-ghost" onclick="outerProdigyEvent()">Outer Prodigy</button>
+    <button class="btn-ghost" onclick="raiseAllOuter()">Raise All Outer→Inner</button>
+    <button class="btn-ghost" onclick="payRankStipends()">Pay Rank Stipends</button>
+    <button class="btn-ghost" onclick="educateHeir('Combat')">Educate: Combat</button>
+    <button class="btn-ghost" onclick="educateHeir('Alchemy')">Educate: Alchemy</button>
+    <button class="btn-ghost" onclick="educateHeir('Politics')">Educate: Politics</button>
+    <button class="btn-ghost" onclick="exileMember()">Exile Member</button>
+    <button class="btn-ghost" onclick="returnExile()">Return Exile</button>
+    <button class="btn-ghost" onclick="simUntilSuccession()">Sim Until Succession</button>
+    <button class="btn-ghost" onclick="setHierarchyFilter('all')">Filter All</button>
+    <button class="btn-ghost" onclick="setHierarchyFilter('elder')">Filter Elders+</button>
+    <button class="btn-ghost" onclick="setHierarchyFilter('outer')">Filter Outer</button>
+  </div>
+  <p style="color:var(--text-muted);font-size:0.82rem;margin-top:8px;">Prestige tier: <strong style="color:var(--gold);">${typeof prestigeTierFromRenown==='function'?prestigeTierFromRenown():'—'}</strong> · Duties: VK ${(state.hierarchy.duties&&state.hierarchy.duties.vaultkeeper)||'—'} / War ${(state.hierarchy.duties&&state.hierarchy.duties.warleader)||'—'} / Dip ${(state.hierarchy.duties&&state.hierarchy.duties.diplomat)||'—'}</p>
+  </div>`;
+  return html;
+}
+
+
+
+// ===== HIERARCHY DEPTH PACK (suggestions 1-22) =====
+function ensureHierDepth() {
+  ensureHierarchy();
+  ensureDynasty && ensureDynasty();
+  if (!state.hierarchy.loyalty) state.hierarchy.loyalty = {};
+  if (!state.hierarchy.cooldown) state.hierarchy.cooldown = {}; // id -> month stamp
+  if (!state.hierarchy.duties) state.hierarchy.duties = {}; // vaultkeeper, warleader, diplomat -> charId
+  if (!state.hierarchy.prestigeTier) state.hierarchy.prestigeTier = "Unknown";
+  if (!state.hierarchy.filter) state.hierarchy.filter = "all";
+  if (state.hierarchy.promotionMonth == null) state.hierarchy.promotionMonth = 0;
+}
+
+function prestigeTierFromRenown() {
+  ensureHierDepth();
+  const r = (state.clanWealth && state.clanWealth.renown) || 1;
+  let tier = "Unknown";
+  if (r >= 20) tier = "Continental";
+  else if (r >= 12) tier = "Regional";
+  else if (r >= 5) tier = "Local";
+  else tier = "Unknown";
+  state.hierarchy.prestigeTier = tier;
+  return tier;
+}
+
+function isPatriarch(char) {
+  if (!char) return false;
+  ensureHierarchy();
+  return state.hierarchy.roles[char.id] === "patriarch" || char.isFounder;
+}
+
+function requirePatriarch(actionLabel) {
+  const char = getActiveChar();
+  if (!isPatriarch(char)) {
+    showToast("Only the Patriarch/Matriarch may " + (actionLabel || "do that"));
+    return false;
+  }
+  return true;
+}
+
+function loyaltyOf(char) {
+  ensureHierDepth();
+  if (!char) return 50;
+  if (state.hierarchy.loyalty[char.id] == null) state.hierarchy.loyalty[char.id] = 60;
+  return state.hierarchy.loyalty[char.id];
+}
+
+function addLoyalty(char, n) {
+  if (!char) return;
+  ensureHierDepth();
+  state.hierarchy.loyalty[char.id] = Math.max(0, Math.min(100, loyaltyOf(char) + n));
+}
+
+function assignDuty(duty) {
+  ensureHierDepth();
+  const char = getActiveChar();
+  if (!char || char.alive === false) return showToast("Select living member");
+  state.hierarchy.duties[duty] = char.id;
+  simLog(char.name + " assigned as " + duty);
+  saveState();
+  showToast(duty + ": " + char.name);
+  switchView("simulation");
+}
+
+function setHierarchyFilter(f) {
+  ensureHierDepth();
+  state.hierarchy.filter = f;
+  switchView("simulation");
+}
+
+function rankChallengeDuel() {
+  ensureHierDepth();
+  const living = getLineageCharacters();
+  const challenger = getActiveChar();
+  if (!challenger) return showToast("Select challenger");
+  const target = living.find(c => hierarchyPower(c) > hierarchyPower(challenger) && c.id !== challenger.id);
+  if (!target) return showToast("No higher-rank target");
+  if (typeof simulateDetailedBattle === "function") {
+    const res = simulateDetailedBattle(challenger, target);
+    if (res.win) {
+      state.hierarchy.roles[challenger.id] = state.hierarchy.roles[target.id] || "elder";
+      state.hierarchy.roles[target.id] = "core";
+      addLoyalty(challenger, 10);
+      addLoyalty(target, -15);
+      simLog(challenger.name + " won a rank challenge against " + target.name);
+      showToast("Challenge won — rank seized");
+    } else {
+      addLoyalty(challenger, -10);
+      applyInjury(challenger, 1);
+      simLog(challenger.name + " failed a rank challenge");
+      showToast("Challenge failed");
+    }
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function corruptionScandal() {
+  ensureHierDepth();
+  const elders = getLineageCharacters().filter(c => hierarchyPower(c) >= 3 && !isPatriarch(c));
+  if (!elders.length) return showToast("No elders to scandalize");
+  const e = elders[Math.floor(Math.random() * elders.length)];
+  const stolen = Math.min(40, Math.floor(((state.clanWealth && state.clanWealth.gold) || 0) * 0.15) + 10);
+  state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - stolen);
+  addLoyalty(e, -20);
+  simLog("Corruption scandal: " + e.name + " drained " + stolen + " gold");
+  showToast("Scandal: -" + stolen + " gold");
+  saveState();
+  switchView("simulation");
+}
+
+function honorBanquet() {
+  ensureHierDepth();
+  if ((state.clanWealth.gold || 0) < 45) return showToast("Need 45 gold");
+  state.clanWealth.gold -= 45;
+  state.clanWealth.renown = (state.clanWealth.renown || 1) + 2;
+  getLineageCharacters().forEach(c => addLoyalty(c, 5));
+  prestigeTierFromRenown();
+  simLog("Honor banquet held. Renown and loyalty rise.");
+  saveState();
+  showToast("Banquet complete");
+  switchView("simulation");
+}
+
+function outerProdigyEvent() {
+  ensureHierDepth();
+  const child = typeof birthHeir === "function" ? birthHeir(getFocusChar() || getLineageCharacters()[0] || getActiveChar()) : null;
+  if (!child) return showToast("Could not create prodigy");
+  child.talent = "Monster";
+  state.hierarchy.roles[child.id] = "outer";
+  state.hierarchy.loyalty[child.id] = 80;
+  simLog("Outer prodigy appears: " + child.name + " (Monster talent)");
+  saveState();
+  showToast("Prodigy: " + child.name);
+  switchView("simulation");
+}
+
+function raiseAllOuter() {
+  ensureHierDepth();
+  let n = 0;
+  getLineageCharacters().forEach(c => {
+    if (state.hierarchy.roles[c.id] === "outer") {
+      state.hierarchy.roles[c.id] = "inner";
+      n++;
+    }
+  });
+  simLog("Raised " + n + " outer members to inner after victory rites");
+  saveState();
+  showToast("Raised " + n + " outer → inner");
+  switchView("simulation");
+}
+
+function payRankStipends() {
+  ensureHierDepth();
+  let cost = 0;
+  getLineageCharacters().forEach(c => {
+    const p = hierarchyPower(c);
+    cost += [2, 3, 5, 8, 10, 12][p] || 2;
+  });
+  if ((state.clanWealth.gold || 0) < cost) {
+    // loyalty hit
+    getLineageCharacters().forEach(c => addLoyalty(c, -5));
+    simLog("Stipends unpaid (-loyalty). Needed " + cost);
+    showToast("Unpaid stipends");
+  } else {
+    state.clanWealth.gold -= cost;
+    getLineageCharacters().forEach(c => addLoyalty(c, 2));
+    simLog("Rank stipends paid: -" + cost + " gold");
+    showToast("Stipends -" + cost);
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function successionRitual() {
+  ensureHierDepth();
+  const living = getLineageCharacters();
+  if (living.length < 2) return showToast("Need contenders");
+  const contenders = living.slice().sort((a, b) => hierarchyPower(b) - hierarchyPower(a) || (typeof rankPower==='function'?rankPower(b)-rankPower(a):0)).slice(0, 2);
+  const a = contenders[0], b = contenders[1];
+  if (typeof simulateDetailedBattle === "function") {
+    const res = simulateDetailedBattle(a, b);
+    const winner = res.win ? a : b;
+    Object.keys(state.hierarchy.roles).forEach(id => {
+      if (state.hierarchy.roles[id] === "patriarch") state.hierarchy.roles[id] = "grand_elder";
+    });
+    state.hierarchy.roles[winner.id] = "patriarch";
+    winner.isFounder = true;
+    state.succession = state.succession || {};
+    state.succession.designatedId = winner.id;
+    simLog("Succession ritual complete. New Patriarch: " + winner.name);
+    showToast("Patriarch: " + winner.name);
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function exileMember() {
+  ensureHierDepth();
+  const char = getActiveChar();
+  if (!char) return showToast("Select member");
+  if (!requirePatriarch("exile members")) return;
+  char.exiled = true;
+  char.alive = false;
+  char.deathReason = "exiled (may return in legend)";
+  char.deathYear = state.sim.year;
+  state.lineage.dead = state.lineage.dead || [];
+  state.lineage.dead.push({ name: char.name, reason: char.deathReason, year: state.sim.year, generation: char.generation || 1, exiled: true });
+  simLog(char.name + " was exiled by patriarchal decree");
+  saveState();
+  showToast("Exiled: " + char.name);
+  switchView("simulation");
+}
+
+function returnExile() {
+  const dead = (state.lineage.dead || []).filter(d => d.exiled);
+  if (!dead.length) return showToast("No exiles recorded");
+  const d = dead[dead.length - 1];
+  const char = generateCharacter("Dou Zhe");
+  char.name = d.name;
+  char.alive = true;
+  char.isHeir = true;
+  char.lineageId = state.lineage.founderId;
+  char.generation = d.generation || 1;
+  state.characters.push(char);
+  state.hierarchy.roles[char.id] = "outer";
+  state.hierarchy.loyalty[char.id] = 30;
+  simLog(char.name + " returned from exile as Outer Member");
+  saveState();
+  showToast("Returned: " + char.name);
+  switchView("simulation");
+}
+
+function simUntilSuccession() {
+  ensureHierDepth();
+  if (!state.lineage.founderId) return showToast("Set founder first");
+  state.sim.pauseOnEvents = false;
+  let guard = 0;
+  const startPat = getLineageCharacters().find(c => isPatriarch(c));
+  while (guard < 180) {
+    simTick();
+    guard++;
+    const pat = getLineageCharacters().find(c => isPatriarch(c));
+    if (startPat && (!pat || pat.id !== startPat.id)) break;
+    if (!getLineageCharacters().length) break;
+  }
+  showToast("Simulated until succession pressure (" + guard + " months)");
+  saveState();
+  switchView("simulation");
+}
+
+function educateHeir(track) {
+  ensureHierDepth();
+  const char = getActiveChar();
+  if (!char) return showToast("Select heir/member");
+  if ((state.clanWealth.gold || 0) < 20) return showToast("Need 20 gold");
+  state.clanWealth.gold -= 20;
+  char.education = track;
+  if (track === "Combat") { char.experience = Math.min(100, (char.experience||20)+8); }
+  if (track === "Alchemy") { char.comprehension = Math.min(100, (char.comprehension||20)+8); state.clanWealth.herbs = (state.clanWealth.herbs||0)+1; }
+  if (track === "Politics") { addLoyalty(char, 10); state.clanWealth.renown = (state.clanWealth.renown||1)+1; }
+  simLog(char.name + " educated in " + track);
+  saveState();
+  showToast(track + " education");
+  switchView("simulation");
+}
+
+function outerRebellionCheck() {
+  ensureHierDepth();
+  const outers = getLineageCharacters().filter(c => (state.hierarchy.roles[c.id] || "") === "outer");
+  if (outers.length < 3) return;
+  const avg = outers.reduce((s,c) => s + loyaltyOf(c), 0) / outers.length;
+  if (avg < 35 && Math.random() > 0.7) {
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold||0) - 25);
+    simLog("Outer members rebelled against heavy duty — vault damaged.");
+    outers.forEach(c => addLoyalty(c, 5));
+  }
+}
+
+
+
+// ===== FINAL POLISH PACK (suggestions 1-20) =====
+function dutyBonusesTick() {
+  ensureHierDepth();
+  const d = state.hierarchy.duties || {};
+  const chars = state.characters || [];
+  const byId = id => chars.find(x => x.id === id && x.alive !== false);
+  const vk = byId(d.vaultkeeper);
+  const wl = byId(d.warleader);
+  const dip = byId(d.diplomat);
+  if (vk) {
+    const g = randInt(3, 10);
+    state.clanWealth.gold = (state.clanWealth.gold || 0) + g;
+    try { ledgerAdd("Vaultkeeper duty +" + g, g); } catch(e) {}
+  }
+  if (dip) {
+    state.clanWealth.renown = (state.clanWealth.renown || 1) + (Math.random() > 0.5 ? 1 : 0);
+  }
+  if (wl) {
+    wl.experience = Math.min(100, (wl.experience || 20) + 1);
+  }
+}
+
+function autoStipendYearly() {
+  ensureHierDepth();
+  let cost = 0;
+  getLineageCharacters().forEach(c => {
+    const p = hierarchyPower(c);
+    cost += [2, 3, 5, 8, 10, 12][p] || 2;
+  });
+  if (!cost) return;
+  if ((state.clanWealth.gold || 0) < cost) {
+    getLineageCharacters().forEach(c => addLoyalty(c, -4));
+    simLog("Auto-stipends failed. Loyalty falls. Needed " + cost + " gold.");
+  } else {
+    state.clanWealth.gold -= cost;
+    getLineageCharacters().forEach(c => addLoyalty(c, 1));
+    simLog("Auto-stipends paid: -" + cost);
+  }
+}
+
+function warLeaderSkirmish() {
+  ensureHierDepth();
+  const d = state.hierarchy.duties || {};
+  let fighter = (state.characters || []).find(c => c.id === d.warleader && c.alive !== false);
+  if (!fighter) fighter = getFocusChar() || getActiveChar();
+  if (!fighter) return showToast("No War Leader or active fighter");
+  const foe = generateCharacter(fighter.realm || "Dou Zhe");
+  foe.name = ((state.dynasty && state.dynasty.rival && state.dynasty.rival.name) || "Rival") + " Skirmisher";
+  if (typeof simulateDetailedBattle === "function") {
+    // temporary war leader buff via experience nudge
+    fighter.experience = Math.min(100, (fighter.experience || 20) + 2);
+    const res = simulateDetailedBattle(fighter, foe);
+    showToast(res.win ? "Skirmish won" : "Skirmish lost");
+  }
+  saveState();
+  switchView("battle");
+}
+
+function createCadetBranch() {
+  ensureHierDepth();
+  const living = getLineageCharacters();
+  if (living.length < 3) return showToast("Need at least 3 living members");
+  const a = living[living.length - 1];
+  const b = living[living.length - 2];
+  a.cadetBranch = true;
+  b.cadetBranch = true;
+  const branchName = (state.lineage.bloodName || "Clan") + " Cadet";
+  a.branchName = branchName;
+  b.branchName = branchName;
+  state.hierarchy.roles[a.id] = "outer";
+  state.hierarchy.roles[b.id] = "outer";
+  simLog("Cadet branch formed: " + branchName + " (" + a.name + ", " + b.name + ")");
+  saveState();
+  showToast("Cadet branch created");
+  switchView("simulation");
+}
+
+function exportDynastyReport() {
+  ensureHierDepth();
+  prestigeTierFromRenown();
+  const living = getLineageCharacters();
+  let t = "DYNASTY REPORT\\nBlood: " + (state.lineage.bloodName || "?") + "\\nYear: " + (state.sim.year||1) + "\\nPrestige: " + (state.hierarchy.prestigeTier||"?") + "\\nGold: " + ((state.clanWealth&&state.clanWealth.gold)||0) + "\\nRenown: " + ((state.clanWealth&&state.clanWealth.renown)||1) + "\\nRival: " + ((state.dynasty&&state.dynasty.rival&&state.dynasty.rival.name)||"—") + "\\n\\nMEMBERS\\n";
+  living.forEach(c => {
+    t += "- " + c.name + " | " + hierarchyLabel(c) + " | Loy " + loyaltyOf(c) + " | " + c.star + " " + c.realm + (c.cadetBranch ? " | CADET" : "") + "\\n";
+  });
+  t += "\\nDUTIES\\n" + JSON.stringify(state.hierarchy.duties || {}, null, 2);
+  const blob = new Blob([t], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dynasty-report-y" + (state.sim.year||1) + ".txt";
+  a.click();
+  showToast("Dynasty report exported");
+}
+
+function confirmDanger(msg, fn) {
+  if (!confirm(msg)) return;
+  fn();
+}
+
+function manualCombatTurn(action) {
+  ensureCombatState();
+  state.combat.pendingPlayerAction = action;
+  showToast("Next strike stance intent: " + action + " (used in next detailed fight as opener bias)");
+  // bias stance lightly
+  if (action === "Defend") setCombatStance("defensive");
+  else if (action === "Flame") setCombatStance("aggressive");
+  else if (action === "Skill") setCombatStance("scheme");
+  else setCombatStance("balanced");
+}
+
+function groupClash3v3() {
+  const living = getLineageCharacters();
+  if (living.length < 3) return showToast("Need 3 living members");
+  const team = living.slice(0, 3);
+  let wins = 0;
+  team.forEach((c, i) => {
+    const foe = generateCharacter(c.realm || "Dou Zhe");
+    foe.name = "Enemy Slot " + (i + 1);
+    if (typeof simulateDetailedBattle === "function") {
+      const res = simulateDetailedBattle(c, foe);
+      if (res.win) wins++;
+    }
+  });
+  simLog("Group clash 3v3 result: " + wins + "/3 wins");
+  showToast("Group clash: " + wins + "/3");
+  saveState();
+  switchView("battle");
+}
+
+function renderSimSections() {
+  ensureSimDepth();
+  const livingN = (typeof getLineageCharacters==='function'?getLineageCharacters().length:0);
+  return `
+    <div class="grid-3" style="margin-bottom:12px;">
+      <div class="stat-box"><div class="label">Living</div><div class="value">${livingN}</div></div>
+      <div class="stat-box"><div class="label">Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
+      <div class="stat-box"><div class="label">Threat</div><div class="value">${state.globalThreat||1}</div></div>
+      <div class="stat-box"><div class="label">Prestige</div><div class="value" style="font-size:1rem;">${(state.hierarchy&&state.hierarchy.prestigeTier)||'—'}</div></div>
+      <div class="stat-box"><div class="label">Patriarch AP</div><div class="value">${state.simDepth.actionPoints}/${state.simDepth.maxAP}</div></div>
+      <div class="stat-box"><div class="label">Difficulty</div><div class="value" style="font-size:1rem;">${state.simDepth.difficulty}</div></div>
+    </div>
+    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;">
+      <select onchange="setMonthlyAgenda(this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+        <option value="Train" ${state.simDepth.agenda==='Train'?'selected':''}>Agenda: Train</option>
+        <option value="Manage" ${state.simDepth.agenda==='Manage'?'selected':''}>Agenda: Manage</option>
+        <option value="Adventure" ${state.simDepth.agenda==='Adventure'?'selected':''}>Agenda: Adventure</option>
+      </select>
+      <select onchange="setSimDifficulty(this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+        <option ${state.simDepth.difficulty==='Peaceful'?'selected':''}>Peaceful</option>
+        <option ${state.simDepth.difficulty==='Standard'?'selected':''}>Standard</option>
+        <option ${state.simDepth.difficulty==='Brutal'?'selected':''}>Brutal</option>
+      </select>
+      <select onchange="if(this.value) issueOrder(this.value); this.value='';" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+        <option value="">Command Order…</option>
+        <option value="Train">Order: Train (3m)</option>
+        <option value="Tribute">Order: Tribute (3m)</option>
+        <option value="War Prep">Order: War Prep (3m)</option>
+      </select>
+      <button class="btn-ghost" onclick="bookmarkYear()">Bookmark Year</button>
+      <button class="btn-ghost" onclick="afterActionReport()">After-Action Report</button>
+      <button class="btn-ghost" onclick="twinHeirsEvent()">Twin Heirs Event</button>
+      <button class="btn-ghost" onclick="secondarySpouse()">Secondary Spouse</button>
+      <button class="btn-ghost" onclick="memorialHall()">Memorial Hall</button>
+      <button class="btn-ghost" onclick="tradeCaravan()">Trade Caravan</button>
+    </div>
+    <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:8px;">Pause log: ${(state.simDepth.pauseReasons||[]).slice(0,3).map(p=>`Y${p.y}M${p.m} ${p.reason}`).join(' · ')||'—'}</p>
+    <details class="card" style="margin-bottom:12px;padding:12px;" open>
+      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Hierarchy & Duties</summary>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="autoOrganizeHierarchy()">Auto-Organize</button>
+        <button class="btn-ghost" onclick="assignDuty('vaultkeeper')">Vaultkeeper</button>
+        <button class="btn-ghost" onclick="assignDuty('warleader')">War Leader</button>
+        <button class="btn-ghost" onclick="assignDuty('diplomat')">Diplomat</button>
+        <button class="btn-ghost" onclick="warLeaderSkirmish()">War Leader Skirmish</button>
+        <button class="btn-ghost" onclick="payRankStipends()">Pay Stipends</button>
+        <button class="btn-ghost" onclick="createCadetBranch()">Create Cadet Branch</button>
+        <button class="btn-ghost" onclick="exportDynastyReport()">Export Dynasty Report</button>
+      </div>
+    </details>
+    <details class="card" style="margin-bottom:12px;padding:12px;">
+      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Economy & Safety</summary>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="upgradeBuilding('pillRoom')">Pill Room</button>
+        <button class="btn-ghost" onclick="upgradeBuilding('trainingGround')">Training Ground</button>
+        <button class="btn-ghost" onclick="upgradeBuilding('guardPost')">Guard Post</button>
+        <button class="btn-ghost" onclick="takeMerchantLoan()">Take Loan</button>
+        <button class="btn-ghost" onclick="payDebt()">Pay Debt</button>
+        <button class="btn-ghost" onclick="stabilizeClan()">Stabilize</button>
+        <button class="btn-ghost" onclick="hierarchyTribute()">Tribute</button>
+      </div>
+    </details>
+    <details class="card" style="margin-bottom:12px;padding:12px;">
+      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Crisis & Succession</summary>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="startCrisisChain()">Crisis Chain</button>
+        <button class="btn-ghost" onclick="successionRitual()">Succession Ritual</button>
+        <button class="btn-ghost" onclick="rankChallengeDuel()">Rank Challenge</button>
+        <button class="btn-ghost" onclick="simUntilSuccession()">Sim Until Succession</button>
+        <button class="btn-ghost" onclick="confirmDanger('Disown selected heir?', ()=>disownHeir())">Disown Heir</button>
+        <button class="btn-ghost" onclick="confirmDanger('Exile selected member?', ()=>exileMember())">Exile</button>
+      </div>
+    </details>
+    <details class="card" style="margin-bottom:12px;padding:12px;">
+      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Combat Intents</summary>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="manualCombatTurn('Strike')">Intent: Strike</button>
+        <button class="btn-ghost" onclick="manualCombatTurn('Defend')">Intent: Defend</button>
+        <button class="btn-ghost" onclick="manualCombatTurn('Skill')">Intent: Skill</button>
+        <button class="btn-ghost" onclick="manualCombatTurn('Flame')">Intent: Flame</button>
+        <button class="btn-primary" onclick="runCombatDemo()">Run Detailed Combat</button>
+        <button class="btn-ghost" onclick="groupClash3v3()">Group Clash 3v3</button>
+      </div>
+    </details>
+  `;
+}
+
+
+
+// ===== SIM DEPTH PACK 20 =====
+function ensureSimDepth() {
+  ensureSim();
+  ensureDynasty && ensureDynasty();
+  ensureHierDepth && ensureHierDepth();
+  if (!state.simDepth) {
+    state.simDepth = {
+      agenda: "Train", // Train | Manage | Adventure
+      actionPoints: 3,
+      maxAP: 3,
+      difficulty: "Standard", // Peaceful | Standard | Brutal
+      orders: [], // {type, monthsLeft}
+      pauseReasons: [],
+      bookmarks: [],
+      rankCaps: { patriarch: 1, grand_elder: 2, elder: 3 },
+      lastReport: null
+    };
+  }
+}
+
+function setSimDifficulty(d) {
+  ensureSimDepth();
+  if (!["Peaceful","Standard","Brutal"].includes(d)) return;
+  state.simDepth.difficulty = d;
+  saveState();
+  showToast("Sim difficulty: " + d);
+  switchView("simulation");
+}
+
+function setMonthlyAgenda(a) {
+  ensureSimDepth();
+  state.simDepth.agenda = a;
+  saveState();
+  showToast("Monthly agenda: " + a);
+  switchView("simulation");
+}
+
+function deathMult() {
+  ensureSimDepth();
+  const d = state.simDepth.difficulty;
+  if (d === "Peaceful") return 0.6;
+  if (d === "Brutal") return 1.5;
+  return 1;
+}
+
+function spendAP(n, label) {
+  ensureSimDepth();
+  n = n || 1;
+  if (state.simDepth.actionPoints < n) {
+    showToast("Not enough Patriarch AP (" + state.simDepth.actionPoints + "/" + state.simDepth.maxAP + ")");
+    return false;
+  }
+  state.simDepth.actionPoints -= n;
+  if (label) simLog("AP used: " + label + " (" + state.simDepth.actionPoints + " left)");
+  return true;
+}
+
+function refreshYearlyAP() {
+  ensureSimDepth();
+  state.simDepth.actionPoints = state.simDepth.maxAP;
+}
+
+function issueOrder(type) {
+  ensureSimDepth();
+  if (!requirePatriarch("issue clan orders")) return;
+  if (!spendAP(1, "Order " + type)) return;
+  state.simDepth.orders.push({ type: type, monthsLeft: 3 });
+  simLog("Order issued: " + type + " (3 months)");
+  // loyalty check insubordination
+  const cores = getLineageCharacters().filter(c => hierarchyPower(c) === 2);
+  cores.forEach(c => {
+    if (loyaltyOf(c) < 40 && Math.random() > 0.6) {
+      simLog(c.name + " shows insubordination toward order: " + type);
+      addLoyalty(c, -3);
+    }
+  });
+  saveState();
+  showToast("Order: " + type);
+  switchView("simulation");
+}
+
+function tickOrders() {
+  ensureSimDepth();
+  const next = [];
+  (state.simDepth.orders || []).forEach(o => {
+    o.monthsLeft -= 1;
+    if (o.monthsLeft <= 0) {
+      if (o.type === "Train") {
+        getLineageCharacters().forEach(c => { c.experience = Math.min(100, (c.experience||20)+2); });
+        simLog("Order complete: Train — clan experience rises.");
+      } else if (o.type === "Tribute") {
+        hierarchyTribute();
+      } else if (o.type === "War Prep") {
+        getLineageCharacters().forEach(c => { c.foundation = Math.min(100, (c.foundation||40)+1); });
+        simLog("Order complete: War Prep.");
+      }
+    } else next.push(o);
+  });
+  state.simDepth.orders = next;
+}
+
+function applyAgendaToChar(char) {
+  ensureSimDepth();
+  const a = state.simDepth.agenda;
+  if (a === "Train") {
+    char.douQi = (char.douQi||100) + randInt(10, 40);
+    char.experience = Math.min(100, (char.experience||20)+1);
+  } else if (a === "Manage") {
+    if (Math.random() > 0.7) state.clanWealth.gold = (state.clanWealth.gold||0) + randInt(1, 5);
+  } else if (a === "Adventure") {
+    if (Math.random() > 0.85) {
+      char.experience = Math.min(100, (char.experience||20)+3);
+      if (Math.random() > 0.7) applyInjury(char, 1);
+    }
+  }
+}
+
+function rankSeatFull(rankId) {
+  ensureSimDepth();
+  const cap = (state.simDepth.rankCaps || {})[rankId];
+  if (cap == null) return false;
+  const count = getLineageCharacters().filter(c => state.hierarchy.roles[c.id] === rankId).length;
+  return count >= cap;
+}
+
+function assignHierarchyRankSafe(rankId) {
+  ensureSimDepth();
+  if (rankSeatFull(rankId) && rankId !== "patriarch") {
+    return showToast("No free seat for " + rankId + " (cap reached)");
+  }
+  assignHierarchyRank(rankId);
+}
+
+function actingPatriarch() {
+  ensureSimDepth();
+  const living = getLineageCharacters();
+  const pat = living.find(c => isPatriarch(c));
+  if (pat && !pat.injured) return pat;
+  const acting = living.slice().sort((a,b) => hierarchyPower(b)-hierarchyPower(a))[0];
+  if (acting && pat && pat.injured) {
+    simLog(acting.name + " acts as Patriarch while " + pat.name + " recovers.");
+  }
+  return acting || pat;
+}
+
+function twinHeirsEvent() {
+  const parent = getFocusChar() || getActiveChar();
+  if (!parent) return showToast("No parent");
+  if (typeof birthHeir === "function") {
+    birthHeir(parent);
+    birthHeir(parent);
+    simLog("Twin heirs event! Succession rivalry may follow.");
+    showToast("Twins born");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function secondarySpouse() {
+  const char = getActiveChar();
+  if (!char) return showToast("Select character");
+  if ((state.clanWealth.gold||0) < 25) return showToast("Need 25 gold");
+  state.clanWealth.gold -= 25;
+  char.secondarySpouse = generateName() + " (Secondary)";
+  char.marriageBonus = (char.marriageBonus || 0) + 0.015;
+  simLog(char.name + " took a secondary spouse.");
+  saveState();
+  showToast("Secondary spouse");
+  switchView("simulation");
+}
+
+function memorialHall() {
+  const dead = (state.lineage.dead||[]).filter(d => (d.reason||"").toLowerCase().indexOf("patriarch") >= 0 || true);
+  if (!(state.lineage.dead||[]).length) return showToast("No ancestors");
+  if ((state.clanWealth.gold||0) < 40) return showToast("Need 40 gold");
+  state.clanWealth.gold -= 40;
+  getLineageCharacters().forEach(c => { c.foundation = Math.min(100, (c.foundation||40)+2); });
+  simLog("Memorial hall expanded. Ancestral buff applied.");
+  saveState();
+  showToast("Memorial hall upgraded");
+  switchView("simulation");
+}
+
+function seasonalIncomeTable() {
+  ensureSimDepth();
+  const b = (state.dynasty && state.dynasty.buildings) || {};
+  const base = 5 + ((b.pillRoom||0)*3) + ((b.trainingGround||0)*2) + ((b.guardPost||0)*2);
+  const prestige = { Unknown: 0, Local: 2, Regional: 5, Continental: 10 }[state.hierarchy.prestigeTier||"Unknown"] || 0;
+  const region = 2;
+  return base + prestige + region + Math.floor(((state.clanWealth.renown||1))/2);
+}
+
+function tradeCaravan() {
+  const gain = seasonalIncomeTable() + randInt(5, 25);
+  state.clanWealth.gold = (state.clanWealth.gold||0) + gain;
+  simLog("Spring trade caravan returned: +" + gain + " gold");
+  try { ledgerAdd("Caravan +" + gain, gain); } catch(e) {}
+  saveState();
+  showToast("Caravan +" + gain);
+  switchView("simulation");
+}
+
+function checkBankruptcy() {
+  if ((state.clanWealth.gold||0) >= 0) return;
+  state.clanWealth.gold = 0;
+  // demote outers already outer; strip elder seats
+  getLineageCharacters().forEach(c => {
+    if (hierarchyPower(c) >= 3 && !isPatriarch(c)) state.hierarchy.roles[c.id] = "core";
+    addLoyalty(c, -8);
+  });
+  simLog("Bankruptcy! Assets seized and ranks demoted.");
+}
+
+function recordPauseReason(reason) {
+  ensureSimDepth();
+  state.simDepth.pauseReasons.unshift({ y: state.sim.year, m: state.sim.month, reason: reason });
+  if (state.simDepth.pauseReasons.length > 20) state.simDepth.pauseReasons.pop();
+}
+
+function bookmarkYear() {
+  ensureSimDepth();
+  state.simDepth.bookmarks.unshift(state.sim.year);
+  if (state.simDepth.bookmarks.length > 15) state.simDepth.bookmarks.pop();
+  showToast("Bookmarked Y" + state.sim.year);
+  saveState();
+}
+
+function afterActionReport() {
+  ensureSimDepth();
+  const living = getLineageCharacters().length;
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const text = "After-Action Report\\nYear " + state.sim.year + " M" + state.sim.month + "\\nLiving: " + living + "\\nGold: " + gold + "\\nPrestige: " + (state.hierarchy.prestigeTier||"?") + "\\nAP: " + state.simDepth.actionPoints + "/" + state.simDepth.maxAP + "\\nOrders: " + (state.simDepth.orders||[]).map(o=>o.type+"("+o.monthsLeft+"m)").join(", ");
+  state.simDepth.lastReport = text;
+  alert(text.replace(/\\n/g, "\n"));
+}
+
+function chanceLabel(effect) {
+  const map = {
+    crisis_feed: "Safe · -50 gold · +renown",
+    crisis_ignore: "Risk · -renown · war likely",
+    crisis_migrate: "Medium · branch moves",
+    crisis_war_fight: "High injury risk · combat",
+    crisis_war_pay: "Safe · -70 gold",
+    pill: "Safe · -25 gold · +foundation",
+    rob: "Heat risk · +gold",
+    conscript: "~55% injury · +renown",
+    flame_hunt: "~40% fortune · injury possible"
+  };
+  return map[effect] || "Unknown odds";
+}
+
+
 // ========== NAVIGATION ==========
 
 const views = {
@@ -4745,7 +6450,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const s = document.createElement('span');
       s.id = 'ver-tag';
       s.style.cssText = 'margin-left:auto;font-size:0.75rem;color:var(--text-dim);padding-right:12px;';
-      s.textContent = 'v3-stable';
+      s.textContent = 'build v5 · hierarchy sim';
       tb.appendChild(s);
     }
   } catch(e) {}
