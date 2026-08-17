@@ -899,28 +899,42 @@ function renderCommunity() {
 }
 
 function renderPricing() {
+  ensurePath();
   const tiers = [
-    { name: "Mortal", price: "Free", features: ["1 World", "3 Characters", "Basic Generation", "Local Save"] },
-    { name: "Disciple", price: "$9", features: ["5 Worlds", "20 Characters", "Advanced AI", "Image Credits", "Export TXT"] },
-    { name: "Dou King", price: "$19", features: ["Unlimited Worlds", "100 Characters", "Full Simulation", "More Images", "PDF/DOCX Export"], featured: true },
-    { name: "Dou Saint", price: "$39", features: ["Priority AI", "Custom Flames", "Clan Tools", "Battle Depth", "Community Boost"] },
-    { name: "Dou Di", price: "$79", features: ["Everything", "Dedicated Memory", "Early Features", "API Access", "Legend Status"] }
+    { name: "Mortal", price: "Free", period: "Forever", features: ["1 World","3 Characters","Basic Generation","Local Save"], key: "Mortal" },
+    { name: "Disciple", price: "$9", period: "per month", features: ["5 Worlds","20 Characters","Advanced AI (local)","Image Credits (n/a)","Export TXT"], key: "Disciple" },
+    { name: "Dou King", price: "$19", period: "per month", features: ["Unlimited Worlds","100 Characters","Full Simulation","More Images (n/a)","PDF/DOCX Export (local)"], key: "Dou King", recommended: true },
+    { name: "Dou Saint", price: "$39", period: "per month", features: ["Priority AI (local)","Custom Flames","Clan Tools","Battle Depth","Community Boost"], key: "Dou Saint" },
+    { name: "Dou Di", price: "$79", period: "per month", features: ["Everything","Dedicated Memory (localStorage)","Early Features","API Access (n/a)","Legend Status"], key: "Dou Di" }
   ];
   return `
-    <div class="card" style="margin-bottom:24px;text-align:center;">
-      <h3 class="card-title" style="font-size:1.4rem;">Cultivation Paths — SaaS Tiers</h3>
-      <p style="color:var(--text-muted);margin-top:8px;">Higher tiers grant more AI credits, storage, and deeper simulation power.</p>
+    <div class="card" style="margin-bottom:16px;">
+      <h3 class="card-title">Cultivation Paths</h3>
+      <p style="color:var(--text-muted);margin-top:8px;">This site is a <strong style="color:var(--gold);">local single-player app</strong>. There is <strong>no real payment system</strong>. Prices are cosmetic. Use <strong>Admin Unlock</strong> to access every path.</p>
+      <p style="color:var(--text-dim);font-size:0.85rem;margin-top:6px;">Current path: <strong style="color:var(--gold);">${state.path.tier}</strong> · Admin: <strong style="color:var(--gold);">${state.path.admin ? "ON" : "OFF"}</strong></p>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn-primary" onclick="enableAdminPath()">🔓 Admin Unlock All Paths</button>
+        <button class="btn-ghost" onclick="setPathTier('Mortal')">Set Mortal</button>
+      </div>
     </div>
     <div class="grid-3">
       ${tiers.map(t => `
-        <div class="pricing-card ${t.featured ? 'featured' : ''}">
-          <div class="tier-name">${t.name}</div>
-          <div class="price">${t.price}</div>
-          <div class="period">${t.price === 'Free' ? 'Forever' : 'per month'}</div>
-          <ul>${t.features.map(f => `<li>${f}</li>`).join('')}</ul>
-          <button class="btn-primary" style="width:100%;">${t.price === 'Free' ? 'Current Path' : 'Ascend'}</button>
+        <div class="card" style="position:relative;${t.recommended?'border-color:var(--gold);':''}">
+          ${t.recommended?'<div class="badge badge-gold" style="position:absolute;top:12px;right:12px;">RECOMMENDED</div>':''}
+          <h3 class="card-title" style="color:var(--gold);">${t.name}</h3>
+          <div style="font-size:2rem;font-weight:700;margin:8px 0;">${t.price}</div>
+          <div style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px;">${t.period}</div>
+          <ul style="color:var(--text-muted);padding-left:18px;margin-bottom:16px;">
+            ${t.features.map(f=>`<li>${f}</li>`).join("")}
+          </ul>
+          <button class="${state.path.tier===t.key?'btn-primary':'btn-ghost'}" style="width:100%;" onclick="setPathTier('${t.key}')">
+            ${state.path.tier===t.key?'Current Path':'Use This Path (Free Local)'}
+          </button>
         </div>
-      `).join('')}
+      `).join("")}
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <p style="color:var(--text-dim);font-size:0.85rem;">Note: Features like lineage sim, combat, hierarchy, and story are already available in this build without paying. Ascend buttons do not charge money.</p>
     </div>
   `;
 }
@@ -6360,6 +6374,48 @@ function chanceLabel(effect) {
 }
 
 
+
+// ===== PATH / ADMIN UNLOCK (client-side, no real payments) =====
+function ensurePath() {
+  if (!state.path) {
+    state.path = { tier: "Mortal", admin: true, unlocked: ["Mortal","Disciple","Dou King","Dou Saint","Dou Di"] };
+  }
+  // This build is fully local — all tiers available; no Stripe/backend
+  if (state.path.admin == null) state.path.admin = true;
+  if (!state.path.unlocked || !state.path.unlocked.length) {
+    state.path.unlocked = ["Mortal","Disciple","Dou King","Dou Saint","Dou Di"];
+  }
+}
+
+function isTierUnlocked(tier) {
+  ensurePath();
+  if (state.path.admin) return true;
+  return (state.path.unlocked || []).includes(tier);
+}
+
+function setPathTier(tier) {
+  ensurePath();
+  if (!isTierUnlocked(tier)) {
+    showToast("Tier locked in this build");
+    return;
+  }
+  state.path.tier = tier;
+  saveState();
+  showToast("Path set to " + tier + " (local unlock — no payment)");
+  switchView("pricing");
+}
+
+function enableAdminPath() {
+  ensurePath();
+  state.path.admin = true;
+  state.path.unlocked = ["Mortal","Disciple","Dou King","Dou Saint","Dou Di"];
+  state.path.tier = "Dou Di";
+  saveState();
+  showToast("Admin path ON — all features unlocked locally");
+  switchView("pricing");
+}
+
+
 // ========== NAVIGATION ==========
 
 const views = {
@@ -6414,6 +6470,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { if (typeof ensureWealth === 'function') ensureWealth(); } catch(e) {}
   try { if (typeof ensure100 === 'function') ensure100(); } catch(e) {}
   try { if (typeof ensure100b === 'function') ensure100b(); } catch(e) {}
+  try { if (typeof ensurePath === 'function') ensurePath(); } catch(e) {}
   try { if (typeof initSimWorker === 'function') initSimWorker(); } catch(e) {}
 
   // Always reveal app — never stick on loader
