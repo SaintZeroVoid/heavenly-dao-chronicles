@@ -4,7 +4,19 @@
 // Ultimate Application Logic — Expanded Edition
 // ======================
 
-let state = JSON.parse(localStorage.getItem('heavenlyDaoState')) || { ...DEFAULT_STATE };
+var SAVE_VERSION = 3; // var so it is available before later const reassignments / hoisted for migrateSave
+
+let state;
+try {
+  const raw = localStorage.getItem('heavenlyDaoState');
+  state = raw ? JSON.parse(raw) : null;
+} catch (e) {
+  console.warn('Corrupt save cleared', e);
+  state = null;
+}
+state = (typeof migrateSave === 'function')
+  ? migrateSave(state || { ...DEFAULT_STATE })
+  : (state || { ...DEFAULT_STATE });
 ['sects','clans','empires','academies','auctions','pillTowers','events','pills','techniques','flames','beasts','characters','storyChapters'].forEach(k => {
   if (!Array.isArray(state[k])) state[k] = [];
 });
@@ -20,12 +32,14 @@ function saveState() {
 
 function showToast(msg) {
   const toast = document.getElementById('toast');
+  if (!toast) { try { console.log(msg); } catch(e) {} return; }
   toast.textContent = msg;
   toast.classList.remove('hidden');
   setTimeout(() => toast.classList.add('hidden'), 3000);
 }
 
 function getActiveChar() {
+  if (!state.characters || !state.characters.length) return null;
   return state.characters.find(c => c.id === state.currentCharacterId) || state.characters[0] || null;
 }
 
@@ -94,6 +108,9 @@ function renderDashboard() {
             <button class="btn-ghost" onclick="storyDebtPayoff()">📜 Debt Payoff Chapter</button>
             <button class="btn-ghost" onclick="breakthroughPreview()">🔮 Breakthrough Preview</button>
             <button class="btn-ghost" onclick="runShowcaseDemo()">🎬 Demo</button>
+            <button class="btn-primary" onclick="startOnboarding()">📘 New Player Path</button>
+            <button class="btn-ghost" onclick="startOnboarding()">📘 Onboarding</button>
+            ${(state.branch && state.branch.flags && Object.keys(state.branch.flags).length) ? '<button class="btn-ghost" onclick="storyDebtPayoff()">📜 Debt Payoff Due</button>' : ''}
             <button class="btn-ghost" onclick="switchView('simulation')">♾️ Lineage Sim</button>
             <button class="btn-ghost" onclick="collectionSync()">📦 Sync Collections</button>
             <button class="btn-ghost" onclick="advanceSeason()">🌙 Advance Season</button>
@@ -806,8 +823,13 @@ function renderCommunity() {
       <p style="color:var(--text-dim);font-size:0.9rem;">In the full version: ratings, comments, followers, public world browser, and collaborative storytelling.</p>
       <div class="section-divider"></div>
       <button class="btn-danger" onclick="resetWorld()">⚠️ Reset Entire World</button>
+      <button class="btn-ghost" onclick="resetLineageKeepWorld()">♻️ Reset Lineage Keep World</button>
+      <button class="btn-ghost" onclick="try { localStorage.removeItem('heavenlyDaoState'); location.reload(); } catch(e) {}">🩹 Corrupt Save Recovery</button>
       <div class="section-divider"></div>
       <h4 style="color:var(--gold);margin-bottom:10px;">Save Slots</h4>
+      <p style="color:var(--text-dim);font-size:0.82rem;margin-bottom:8px;">
+        ${[1,2,3].map(n => { const p = state.saveSlots&&state.saveSlots[n]&&state.saveSlots[n]._preview; return "Slot "+n+": "+(p? (p.blood+" Y"+p.year+" living "+p.living+(p.extinct?" EXTINCT":"")) : "empty"); }).join(" · ")}
+      </p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
         <button class="btn-ghost" onclick="saveToSlot(1)">Save Slot 1</button>
         <button class="btn-ghost" onclick="loadFromSlot(1)">Load Slot 1</button>
@@ -2089,11 +2111,18 @@ function runTutorial() {
 
 function saveToSlot(n) {
   ensureMeta();
+  const preview = {
+    blood: (state.lineage && state.lineage.bloodName) || "—",
+    year: (state.sim && state.sim.year) || 1,
+    living: (typeof getLineageCharacters === "function" ? getLineageCharacters().length : (state.characters||[]).length),
+    extinct: !!(state.sim && state.sim.lineageAlive === false),
+    chapters: (state.storyChapters||[]).length
+  };
   state.saveSlots[n] = JSON.parse(JSON.stringify(state));
-  // avoid recursive huge slots inside slots
   if (state.saveSlots[n].saveSlots) state.saveSlots[n].saveSlots = { 1: null, 2: null, 3: null };
+  state.saveSlots[n]._preview = preview;
   saveState();
-  showToast("Saved to slot " + n);
+  showToast("Saved slot " + n + " (" + preview.blood + " Y" + preview.year + ")");
 }
 
 function loadFromSlot(n) {
@@ -2300,6 +2329,47 @@ const STORY_GRAPH = {
     choices: [
       { id: "return_stronger", label: "Return stronger and reclaim a share", next: "ending_solo_glory", effects: { qi: 600, exp: 6, flag: "late_return" } },
       { id: "never_return", label: "Let that destiny go forever", next: "ending_reject", effects: { foundation: 6, flag: "true_renunciation" } }
+    ]
+  },
+
+
+  // BTTH-style Three-Year Covenant starter
+  covenant_start: {
+    id: "covenant_start",
+    title: "Covenant Arc: Public Slight",
+    text: "In front of the clan and guests, a betrothal is treated as disposable. Laughter cuts deeper than blades. A three-year covenant is spoken — not as romance, but as a timer nailed into destiny.",
+    choices: [
+      { id: "accept_timer", label: "Accept the three-year timer and train in silence", next: "covenant_train", effects: { foundation: 3, flag: "covenant_accepted" } },
+      { id: "retort", label: "Retort publicly and raise the stakes", next: "covenant_train", effects: { exp: 3, flag: "covenant_public", wanted: 0 } },
+      { id: "leave_clan", label: "Leave the clan grounds to seek a hidden master", next: "covenant_master", effects: { flag: "covenant_leave", comprehension: 2 } }
+    ]
+  },
+  covenant_train: {
+    id: "covenant_train",
+    title: "Covenant Arc: Closed Training",
+    text: "Days collapse into circulation cycles. Alchemy funds the path. Each small breakthrough is banked toward a public reversal.",
+    choices: [
+      { id: "alchemy_fund", label: "Sell pills to fund techniques", next: "covenant_duel", effects: { qi: 300, flag: "covenant_alchemy" } },
+      { id: "risk_ruin", label: "Risk a ruin for a decisive technique", next: "covenant_duel", effects: { exp: 6, injuryChance: 0.25, flag: "covenant_ruin" } }
+    ]
+  },
+  covenant_master: {
+    id: "covenant_master",
+    title: "Covenant Arc: Hidden Guidance",
+    text: "A hidden expert tests patience more than talent. Method arrives — expensive, incomplete, and enough.",
+    choices: [
+      { id: "swear_disciple", label: "Swear discipleship and endure the method", next: "covenant_duel", effects: { comprehension: 4, flag: "covenant_disciple" } },
+      { id: "steal_method", label: "Take the method and vanish", next: "covenant_duel", effects: { exp: 5, flag: "covenant_stolen_method", wanted: 1 } }
+    ]
+  },
+  covenant_duel: {
+    id: "covenant_duel",
+    title: "Covenant Arc: Due Date",
+    text: "Three years compress into one arena. Spectators come for humiliation; history comes for a name.",
+    choices: [
+      { id: "win_clean", label: "Win cleanly and walk away", next: "ending_solo_glory", effects: { exp: 12, flag: "covenant_won" } },
+      { id: "win_cost", label: "Win at a brutal cost", next: "ending_solo_glory", effects: { exp: 10, injuryChance: 0.4, flag: "covenant_pyrrhic" } },
+      { id: "refuse_kill", label: "Win but refuse to destroy them fully", next: "ending_alliance", effects: { foundation: 4, flag: "covenant_mercy" } }
     ]
   },
 
@@ -3209,11 +3279,11 @@ function renderAchievements() {
     </div>
     <div class="card" style="margin-bottom:16px;">
       <h3 class="card-title" style="margin-bottom:10px;">Achievements (${list.length})</h3>
-      ${list.length ? list.map(a => `<div style="padding:8px 0;border-bottom:1px solid var(--border);">${a.name}</div>`).join("") : "<p style=\\"color:var(--text-dim)\\">None yet</p>"}
+      ${list.length ? list.map(a => `<div style="padding:8px 0;border-bottom:1px solid var(--border);">${a.name}</div>`).join("") : `<p style="color:var(--text-dim)">None yet</p>`}
     </div>
     <div class="card" style="margin-bottom:16px;">
       <h3 class="card-title" style="margin-bottom:10px;">Continent News</h3>
-      ${(state.news||[]).slice(0,12).map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--gold);">${n.title}</strong><div style="color:var(--text-muted);font-size:0.88rem;">${n.desc}</div></div>`).join("") || "<p style=\\"color:var(--text-dim)\\">No news</p>"}
+      ${(state.news||[]).slice(0,12).map(n => `<div style="padding:8px 0;border-bottom:1px solid var(--border);"><strong style="color:var(--gold);">${n.title}</strong><div style="color:var(--text-muted);font-size:0.88rem;">${n.desc}</div></div>`).join("") || `<p style="color:var(--text-dim)">No news</p>`}
     </div>
     <div class="card">
       <h3 class="card-title" style="margin-bottom:10px;">Sect Laws</h3>
@@ -3230,13 +3300,13 @@ function renderAchievements() {
 
 // ===== QUALITY WAVE (100 improvements layer) =====
 
-const SAVE_VERSION = 3;
+// SAVE_VERSION already declared at top
 let undoStack = [];
 let searchQuery = "";
 
 function migrateSave(raw) {
   if (!raw || typeof raw !== "object") raw = {};
-  raw.version = SAVE_VERSION;
+  raw.version = (typeof SAVE_VERSION !== 'undefined' ? SAVE_VERSION : 3);
   const arrays = ["characters","techniques","flames","beasts","sects","clans","empires","academies","auctions","pillTowers","events","pills","storyChapters","news","bookmarks","battleReplays","artifacts","sectLaws"];
   arrays.forEach(k => { if (!Array.isArray(raw[k])) raw[k] = []; });
   if (!raw.meta) raw.meta = { tone: "heroic", season: "Calm Season", danger: 1, tutorialStep: 0 };
@@ -3496,6 +3566,7 @@ function killCharacter(char, reason) {
   char.alive = false;
   char.deathReason = reason || "fell on the cultivation road";
   char.deathYear = state.sim.year;
+  try { autoSuccessorOnDeath(char); } catch(e) {}
   state.lineage.dead = state.lineage.dead || [];
   state.lineage.dead.push({ name: char.name, reason: char.deathReason, year: state.sim.year, generation: char.generation || 1 });
   simLog(char.name + " died: " + char.deathReason);
@@ -3555,7 +3626,8 @@ function simTick() {
     let renownBoost = 1 + Math.min(0.5, ((state.clanWealth && state.clanWealth.renown) || 1) * 0.03);
     if ((state.lineageTraits||[]).includes("Genius Blood")) renownBoost *= 1.1;
     if ((state.lineageTraits||[]).includes("Flame Affinity") && char.attribute === "Fire") renownBoost *= 1.08;
-    const gain = Math.floor(randInt(20, 90) * (state.sim.speed || 1) * renownBoost);
+    let gain = Math.floor(randInt(20, 90) * (state.sim.speed || 1) * renownBoost);
+    if (state.succession && state.succession.designatedId === char.id) gain = Math.floor(gain * 1.15);
     if ((state.lineageTraits||[]).includes("Short-Lived") && Math.random() > 0.995) { /* extra mortality handled below via age */ }
     char.douQi = (char.douQi || 100) + gain;
     char.experience = Math.min(100, (char.experience || 20) + randInt(0, 2));
@@ -3581,7 +3653,7 @@ function simTick() {
 
     // death risks scale with age and threat
     const threat = state.globalThreat || 1;
-    let deathChance = 0.002 + Math.max(0, (char.age || 20) - 80) * 0.01;
+    let deathChance = 0.0012 + Math.max(0, (char.age || 20) - 90) * 0.008;
     deathChance += threat * 0.0008;
     if (char.injured) deathChance += char.injured * 0.01;
     if ((state.lineageTraits||[]).includes("Short-Lived")) deathChance += 0.01;
@@ -3600,7 +3672,7 @@ function simTick() {
 
     // birth chance for adults (marriage increases odds)
     if (char.alive !== false && (char.age || 0) >= 20 && (char.age || 0) <= 70) {
-      let birthNeed = 0.985;
+      let birthNeed = 0.978;
       if (char.spouse) birthNeed -= 0.025;
       if (char.marriageBonus) birthNeed -= char.marriageBonus;
       if ((state.clanWealth && state.clanWealth.renown || 0) > 5) birthNeed -= 0.01;
@@ -3614,6 +3686,15 @@ function simTick() {
   // clan wealth yearly pulse
   if (state.sim.month === 1) {
     try { clanTradeYearly(); simLog("Clan vault yearly trade. Gold now " + (state.clanWealth && state.clanWealth.gold)); } catch(e) {}
+    try {
+      const gen = state.lineage.generations || 1;
+      if ([3,5,10].includes(gen) && !state.lineage["milestone"+gen]) {
+        state.lineage["milestone"+gen] = true;
+        state.clanWealth.gold = (state.clanWealth.gold||0) + gen * 20;
+        state.clanWealth.renown = (state.clanWealth.renown||1) + 1;
+        simLog("Generation milestone " + gen + " reached! Clan rewards granted.");
+      }
+    } catch(e) {}
   }
 
   // world drift
@@ -3661,6 +3742,7 @@ function simTick() {
     }
   }
 
+  try { softCapLiving(); } catch(e) {}
   try { nearExtinctionWarn(); } catch(e) {}
   if (checkExtinction()) {
     saveState();
@@ -3686,13 +3768,27 @@ function startSimulation() {
   if (_simTimer) clearInterval(_simTimer);
   if (_simTimer) { clearInterval(_simTimer); _simTimer = null; }
   const ms = Math.max(150, 1000 / (state.sim.speed || 1));
+  initSimWorker();
   _simTimer = setInterval(() => {
     if (!state.sim || !state.sim.running) { clearInterval(_simTimer); _simTimer = null; return; }
-    try { simTick(); } catch (err) { console && console.error && console.error(err); state.sim.running = false; }
-    const bc = document.getElementById("breadcrumb");
-    if (bc && bc.textContent === "Lineage Simulation") {
-      try { switchView("simulation"); } catch(e) {}
-    }
+    try {
+      if (_simWorker && !_simWorkerFail) workerSimPulse();
+      else {
+        simTick();
+        const bc = document.getElementById("breadcrumb");
+        if (bc && bc.textContent === "Lineage Simulation") {
+          try {
+            const y = document.querySelector("#sim-year");
+            if (y && state.sim.tick % 4 !== 0 && !state.sim.pendingChoice) {
+              y.textContent = state.sim.year;
+              const m = document.querySelector("#sim-month"); if (m) m.textContent = state.sim.month;
+              const g = document.querySelector("#sim-gold"); if (g && state.clanWealth) g.textContent = state.clanWealth.gold||0;
+              const lv = document.querySelector("#sim-living"); if (lv) lv.textContent = getLineageCharacters().length;
+            } else switchView("simulation");
+          } catch(e) { try { switchView("simulation"); } catch(e2) {} }
+        }
+      }
+    } catch (err) { console && console.error && console.error(err); state.sim.running = false; }
   }, ms);
   switchView("simulation");
   showToast("Simulation running");
@@ -3743,10 +3839,10 @@ function renderSimulation() {
       </div>
       <p style="color:var(--text-muted);margin-bottom:12px;">A continuous world tick. Characters age, cultivate, birth heirs, and die. The simulation ends when no lineage members remain.</p>
       <div class="grid-4" style="margin-bottom:12px;">
-        <div class="stat-box"><div class="label">Year</div><div class="value">${state.sim.year}</div></div>
-        <div class="stat-box"><div class="label">Month</div><div class="value">${state.sim.month}</div></div>
+        <div class="stat-box"><div class="label">Year</div><div class="value" id="sim-year">${state.sim.year}</div></div>
+        <div class="stat-box"><div class="label">Month</div><div class="value" id="sim-month">${state.sim.month}</div></div>
         <div class="stat-box"><div class="label">Generation</div><div class="value">${state.lineage.generations||1}</div></div>
-        <div class="stat-box"><div class="label">Living</div><div class="value">${living.length}</div></div>
+        <div class="stat-box"><div class="label">Living</div><div class="value" id="sim-living">${living.length}</div></div>
       </div>
       <p style="color:var(--text-muted);font-size:0.9rem;">Founder: <strong style="color:var(--gold);">${founder ? founder.name : "Not set"}</strong> · Blood: ${state.lineage.bloodName || "—"} · Threat: ${state.globalThreat||1} · Tick: ${state.sim.tick||0}</p>
       <p style="color:var(--text-dim);font-size:0.82rem;margin-top:6px;">Tip: Marry spouses before forcing heirs. Renown boosts passive cultivation. Ironman blocks undo.</p>
@@ -3760,6 +3856,17 @@ function renderSimulation() {
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
         <button class="btn-ghost" onclick="togglePauseOnEvents()">Pause-on-Event: ${state.sim.pauseOnEvents===false?"OFF":"ON"}</button>
         <button class="btn-ghost" onclick="switchView('familytree')">🌳 Family Tree Page</button>
+        <button class="btn-ghost" onclick="enableWatchOnly()">👀 Watch-Only</button>
+        <button class="btn-ghost" onclick="initSimWorker(); showToast(_simWorkerFail ? 'Worker unavailable — main thread' : (_simWorkerReady ? 'Worker ready' : 'Worker starting…'))">⚙️ Sim Worker Status</button>
+        <button class="btn-ghost" onclick="startOnboarding()">📘 Onboarding 2-min</button>
+        <button class="btn-ghost" onclick="simulateYears(10)">⏩ Simulate 10 Years</button>
+        <button class="btn-ghost" onclick="balanceReadout()">📊 Balance Readout</button>
+      </div>
+      <div class="card" style="margin-top:12px;padding:12px;">
+        <h4 style="color:var(--gold);margin-bottom:8px;">Vault Ledger</h4>
+        ${typeof renderVaultLedger==='function' ? renderVaultLedger() : ''}
+        <h4 style="color:var(--gold);margin:12px 0 8px;">Pause Choice History</h4>
+        ${(state.pauseHistory||[]).slice(0,8).map(p => `<div style="font-size:0.8rem;color:var(--text-muted);padding:3px 0;">Y${p.y}M${p.m}: ${p.event} → ${p.effect}</div>`).join("") || '<p style="color:var(--text-dim);font-size:0.82rem;">No pause choices yet</p>'}
       </div>
       ${!state.sim.lineageAlive ? `<p style="color:var(--red-glow);margin-top:10px;"><strong>EXTINCT:</strong> ${state.sim.extinctReason||""}</p>` : ""}
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">
@@ -3785,7 +3892,7 @@ function renderSimulation() {
         <button class="btn-ghost" onclick="simTick(); switchView('simulation')">⏭ Single Tick</button>
       </div>
       <div class="grid-4" style="margin-top:14px;">
-        <div class="stat-box"><div class="label">Clan Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
+        <div class="stat-box"><div class="label">Clan Gold</div><div class="value" id="sim-gold">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
         <div class="stat-box"><div class="label">Herbs</div><div class="value">${(state.clanWealth&&state.clanWealth.herbs)||0}</div></div>
         <div class="stat-box"><div class="label">Cores</div><div class="value">${(state.clanWealth&&state.clanWealth.cores)||0}</div></div>
         <div class="stat-box"><div class="label">Renown</div><div class="value">${(state.clanWealth&&state.clanWealth.renown)||1}</div></div>
@@ -3810,13 +3917,13 @@ function renderSimulation() {
     <div class="card" style="margin-bottom:16px;">
       <h3 class="card-title" style="margin-bottom:10px;">Simulation Log</h3>
       <div style="max-height:260px;overflow:auto;">
-        ${(state.sim.log||[]).slice(0,25).map(l => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);"><span style="color:var(--gold);">Y${l.year}M${l.month}</span> — ${l.msg}</div>`).join("") || "<p style=\\"color:var(--text-dim)\\">No ticks yet</p>"}
+        ${(state.sim.log||[]).slice(0,25).map(l => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);"><span style="color:var(--gold);">Y${l.year}M${l.month}</span> — ${l.msg}</div>`).join("") || `<p style="color:var(--text-dim)">No ticks yet</p>`}
       </div>
     </div>
 
     <div class="card">
       <h3 class="card-title" style="margin-bottom:10px;">Ancestral Record (Dead)</h3>
-      ${dead.length ? dead.slice().reverse().map(d => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);">${d.name} · Gen ${d.generation||"?"} · Y${d.year} — ${d.reason}</div>`).join("") : "<p style=\\"color:var(--text-dim)\\">No deaths recorded</p>"}
+      ${dead.length ? dead.slice().reverse().map(d => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:var(--text-muted);">${d.name} · Gen ${d.generation||"?"} · Y${d.year} — ${d.reason}</div>`).join("") : `<p style="color:var(--text-dim)">No deaths recorded</p>`}
     </div>
   `;
 }
@@ -3894,6 +4001,7 @@ function clanTradeYearly() {
   const living = getLineageCharacters().length;
   const gain = randInt(1, 8) + Math.floor(living * 1.5) + Math.floor(renown / 2);
   state.clanWealth.gold = (state.clanWealth.gold || 0) + gain;
+  try { ledgerAdd('Yearly trade +'+gain, gain); } catch(e) {}
   if (Math.random() > 0.7) state.clanWealth.herbs = (state.clanWealth.herbs || 0) + randInt(0, 2);
   if (Math.random() > 0.85) state.clanWealth.cores = (state.clanWealth.cores || 0) + 1;
 }
@@ -4123,7 +4231,7 @@ function ensurePause() {
 
 function offerSimChoice(eventName) {
   ensurePause();
-  if (!state.sim.pauseOnEvents || !state.sim.running) return false;
+  if (!state.sim.pauseOnEvents || state.sim.watchOnly || !state.sim.running) return false;
   // only pause sometimes on notable events
   const choices = {
     "secret realm": [
@@ -4196,6 +4304,7 @@ function resolveSimChoice(effect) {
     msg = "The clan chose caution.";
   }
   simLog(msg);
+  try { recordPauseChoice((state.sim.pendingChoice&&state.sim.pendingChoice.event)||'event', effect, msg); } catch(e) {}
   state.sim.pendingChoice = null;
   saveState();
   showToast(msg);
@@ -4204,6 +4313,7 @@ function resolveSimChoice(effect) {
 
 function togglePauseOnEvents() {
   ensurePause();
+  if (state.sim.watchOnly) { state.sim.watchOnly = false; }
   state.sim.pauseOnEvents = !state.sim.pauseOnEvents;
   saveState();
   showToast("Pause on events: " + (state.sim.pauseOnEvents ? "ON" : "OFF"));
@@ -4225,6 +4335,287 @@ function renderFamilyTreePage() {
       <button class="btn-ghost" onclick="switchView('simulation')">← Back to Lineage Sim</button>
     </div>
   `;
+}
+
+
+
+function startOnboarding() {
+  const steps = [
+    () => { if (!state.world) createWorld(); showToast("1/5 World ready"); },
+    () => { if (!state.characters.length) createCharacter("Dou Zhe"); showToast("2/5 Character ready"); },
+    () => { state.currentCharacterId = state.characters[0].id; markFounder(); showToast("3/5 Founder set"); },
+    () => { try { marrySpouse(); } catch(e) {} showToast("4/5 Marriage attempted"); },
+    () => { switchView("simulation"); showToast("5/5 Open Sim — press Start Forever Sim"); }
+  ];
+  if (!state.meta) state.meta = {};
+  const i = state.meta.onboardStep || 0;
+  if (i >= steps.length) { showToast("Onboarding complete"); return; }
+  steps[i]();
+  state.meta.onboardStep = i + 1;
+  saveState();
+}
+
+
+function enableWatchOnly() {
+  ensurePause();
+  state.sim.watchOnly = true;
+  state.sim.pauseOnEvents = false;
+  saveState();
+  showToast("Watch-only mode: no pause prompts");
+  switchView("simulation");
+}
+
+
+function ledgerAdd(msg, goldDelta) {
+  ensureWealth();
+  if (!state.vaultLedger) state.vaultLedger = [];
+  state.vaultLedger.unshift({ y: (state.sim&&state.sim.year)||1, m: (state.sim&&state.sim.month)||1, msg, goldDelta: goldDelta||0 });
+  if (state.vaultLedger.length > 40) state.vaultLedger.pop();
+}
+
+
+// ===== WEB WORKER SIM BRIDGE =====
+let _simWorker = null;
+let _simWorkerReady = false;
+let _simWorkerFail = false;
+let _simReqId = 0;
+
+function initSimWorker() {
+  if (_simWorker || _simWorkerFail) return;
+  try {
+    _simWorker = new Worker("js/sim.worker.js");
+    _simWorker.onmessage = onSimWorkerMessage;
+    _simWorker.onerror = function () {
+      _simWorkerFail = true;
+      _simWorker = null;
+      showToast("Sim worker failed — using main thread");
+    };
+    _simWorker.postMessage({ type: "ping" });
+  } catch (e) {
+    _simWorkerFail = true;
+    _simWorker = null;
+  }
+}
+
+function onSimWorkerMessage(e) {
+  const msg = e.data || {};
+  if (msg.type === "pong") {
+    _simWorkerReady = true;
+    return;
+  }
+  if (msg.type !== "tickResult") return;
+  if (!msg.ok) {
+    // fallback single main-thread tick
+    try { simTick(); } catch (err) {}
+    return;
+  }
+  applyWorkerTickResult(msg.result);
+}
+
+function snapshotForWorker() {
+  const living = getLineageCharacters().map(c => ({
+    id: c.id,
+    name: c.name,
+    age: c.age || 16,
+    star: c.star,
+    realm: c.realm,
+    talent: c.talent,
+    attribute: c.attribute,
+    douQi: c.douQi || 100,
+    experience: c.experience || 20,
+    foundation: c.foundation || 40,
+    injured: c.injured || 0,
+    spouse: c.spouse || null,
+    marriageBonus: c.marriageBonus || 0,
+    generation: c.generation || 1,
+    boundFlame: c.boundFlame || null,
+    bloodline: c.bloodline || null
+  }));
+  ensureWealth();
+  return {
+    living,
+    wealth: { ...state.clanWealth },
+    year: state.sim.year || 1,
+    month: state.sim.month || 1,
+    threat: state.globalThreat || 1,
+    speed: state.sim.speed || 1,
+    traits: state.lineageTraits || [],
+    successionId: (state.succession && state.succession.designatedId) || null,
+    ironman: !!(state.lineage && state.lineage.ironman)
+  };
+}
+
+function applyWorkerTickResult(result) {
+  if (!result) return;
+  ensureSim();
+  ensureWealth();
+  state.sim.tick = (state.sim.tick || 0) + 1;
+  state.sim.year = result.year;
+  state.sim.month = result.month;
+  if (state.calendar) {
+    state.calendar.year = result.year;
+    state.calendar.month = result.month;
+  }
+  state.globalThreat = result.threat;
+  state.clanWealth = result.wealth;
+
+  // apply living stats back onto characters
+  const byId = {};
+  (result.living || []).forEach(l => { byId[l.id] = l; });
+  (state.characters || []).forEach(c => {
+    if (byId[c.id]) {
+      const u = byId[c.id];
+      c.age = u.age; c.star = u.star; c.realm = u.realm;
+      c.douQi = u.douQi; c.experience = u.experience; c.foundation = u.foundation;
+      c.injured = u.injured; c.alive = true;
+    }
+  });
+
+  // deaths
+  (result.deaths || []).forEach(d => {
+    const char = (state.characters || []).find(c => c.id === d.id);
+    if (char && char.alive !== false) {
+      killCharacter(char, d.reason);
+    }
+  });
+
+  // births via main-thread generator
+  (result.births || []).forEach(b => {
+    const parent = (state.characters || []).find(c => c.id === b.parentId);
+    if (parent) birthHeir(parent);
+  });
+
+  (result.log || []).forEach(msg => simLog(msg));
+  (result.events || []).forEach(ev => {
+    state.events = state.events || [];
+    state.events.push({ title: "Sim Y" + result.year + " M" + result.month, desc: ev });
+  });
+
+  if (result.extinct || checkExtinction()) {
+    state.sim.running = false;
+    saveState();
+    switchView("simulation");
+    return;
+  }
+
+  if (result.pauseEvent && state.sim.pauseOnEvents && !state.sim.watchOnly) {
+    try {
+      if (offerSimChoice(result.pauseEvent)) {
+        saveState();
+        switchView("simulation");
+        return;
+      }
+    } catch (e) {}
+  }
+
+  if (state.sim.tick % 5 === 0) saveState();
+
+  // soft UI update
+  const bc = document.getElementById("breadcrumb");
+  if (bc && bc.textContent === "Lineage Simulation") {
+    try {
+      const y = document.querySelector("#sim-year");
+      if (y && state.sim.tick % 4 !== 0 && !state.sim.pendingChoice) {
+        y.textContent = state.sim.year;
+        const m = document.querySelector("#sim-month"); if (m) m.textContent = state.sim.month;
+        const g = document.querySelector("#sim-gold"); if (g && state.clanWealth) g.textContent = state.clanWealth.gold || 0;
+        const lv = document.querySelector("#sim-living"); if (lv) lv.textContent = getLineageCharacters().length;
+      } else {
+        switchView("simulation");
+      }
+    } catch (e) {}
+  }
+}
+
+function workerSimPulse() {
+  if (!_simWorker || _simWorkerFail) {
+    simTick();
+    return;
+  }
+  initSimWorker();
+  const payload = snapshotForWorker();
+  // batch more ticks at higher speed to reduce bridge overhead
+  const ticks = Math.min(3, Math.max(1, state.sim.speed || 1));
+  _simWorker.postMessage({ type: "tick", payload, ticks, requestId: ++_simReqId });
+}
+
+
+
+function simulateYears(n) {
+  n = n || 10;
+  ensureSim();
+  ensureWealth();
+  if (!state.lineage.founderId) return showToast("Set founder first");
+  if (!state.sim.lineageAlive) return showToast("Lineage already extinct");
+  const wasRunning = state.sim.running;
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  // prefer worker batch if available
+  if (typeof initSimWorker === "function") initSimWorker();
+  if (typeof _simWorker !== "undefined" && _simWorker && !_simWorkerFail) {
+    const months = n * 12;
+    const payload = snapshotForWorker();
+    // process in chunks on worker via multiple messages is complex; do main-thread fast batch for reliability
+  }
+  let guard = 0;
+  const targetMonth = (state.sim.year * 12 + state.sim.month) + n * 12;
+  while ((state.sim.year * 12 + state.sim.month) < targetMonth && state.sim.lineageAlive && guard < n * 12 + 5) {
+    const prevPause = state.sim.pauseOnEvents;
+    state.sim.pauseOnEvents = false; // don't stop for choices during batch
+    try { simTick(); } catch (e) { console.error(e); break; }
+    state.sim.pauseOnEvents = prevPause;
+    guard++;
+  }
+  saveState();
+  showToast("Simulated ~" + n + " years → Y" + state.sim.year + " M" + state.sim.month + " · living " + getLineageCharacters().length);
+  switchView("simulation");
+}
+
+function autoSuccessorOnDeath(deadChar) {
+  if (!state.succession) state.succession = { designatedId: null };
+  if (state.succession.designatedId && state.succession.designatedId !== deadChar.id) return;
+  const living = getLineageCharacters().filter(c => c.id !== deadChar.id);
+  if (!living.length) return;
+  // prefer highest generation then highest realm index
+  living.sort((a, b) => (b.generation || 1) - (a.generation || 1));
+  state.succession.designatedId = living[0].id;
+  try { simLog(living[0].name + " auto-designated successor after death of " + deadChar.name); } catch(e) {}
+}
+
+function softCapLiving() {
+  const living = getLineageCharacters();
+  const CAP = 24;
+  if (living.length <= CAP) return;
+  // mark oldest non-successor as "retired from active sim pressure" by raising age risk only — or split excess as dead of natural causes rarely
+  const succ = state.succession && state.succession.designatedId;
+  const extras = living.filter(c => c.id !== succ).sort((a,b) => (b.age||0) - (a.age||0));
+  const overflow = living.length - CAP;
+  for (let i = 0; i < overflow && i < extras.length; i++) {
+    if (Math.random() > 0.7) {
+      killCharacter(extras[i], "natural decline under clan soft-cap pressure");
+    }
+  }
+}
+
+function recordPauseChoice(eventName, effect, msg) {
+  if (!state.pauseHistory) state.pauseHistory = [];
+  state.pauseHistory.unshift({ y: state.sim.year, m: state.sim.month, event: eventName, effect, msg });
+  if (state.pauseHistory.length > 30) state.pauseHistory.pop();
+}
+
+function renderVaultLedger() {
+  const rows = (state.vaultLedger || []).slice(0, 15);
+  if (!rows.length) return '<p style="color:var(--text-dim);font-size:0.85rem;">No vault ledger entries yet.</p>';
+  return rows.map(r => `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text-muted);">Y${r.y}M${r.m} · ${r.msg} (${r.goldDelta>=0?"+":""}${r.goldDelta})</div>`).join("");
+}
+
+function balanceReadout() {
+  const dead = state.lineage.dead || [];
+  const years = Math.max(1, (state.sim && state.sim.year) || 1);
+  const living = getLineageCharacters().length;
+  const heirs = (state.lineage.heirs || []).length;
+  const avgDeadAge = dead.length ? Math.round(dead.length * 10 / years) / 10 : 0;
+  alert("Balance readout\\nYears: " + years + "\\nLiving: " + living + "\\nHeirs recorded: " + heirs + "\\nDeaths: " + dead.length + "\\nDeaths/year: " + (Math.round(dead.length / years * 100) / 100) + "\\nGold: " + ((state.clanWealth&&state.clanWealth.gold)||0));
 }
 
 
@@ -4266,11 +4657,21 @@ function switchView(viewName) {
 // ========== INIT ==========
 
 document.addEventListener('DOMContentLoaded', () => {
+  try { if (typeof migrateSave === 'function') state = migrateSave(state); } catch(e) {}
+  try { if (typeof ensureMeta === 'function') ensureMeta(); } catch(e) {}
+  try { if (typeof ensureSim === 'function') ensureSim(); } catch(e) {}
+  try { if (typeof ensureWealth === 'function') ensureWealth(); } catch(e) {}
+  try { if (typeof ensure100 === 'function') ensure100(); } catch(e) {}
+  try { if (typeof ensure100b === 'function') ensure100b(); } catch(e) {}
+  try { if (typeof initSimWorker === 'function') initSimWorker(); } catch(e) {}
+
   setTimeout(() => {
-    document.getElementById('loading-screen').classList.add('fade-out');
+    const ls = document.getElementById('loading-screen');
+    const app = document.getElementById('app');
+    if (ls) ls.classList.add('fade-out');
     setTimeout(() => {
-      document.getElementById('loading-screen').classList.add('hidden');
-      document.getElementById('app').classList.remove('hidden');
+      if (ls) ls.classList.add('hidden');
+      if (app) app.classList.remove('hidden');
     }, 600);
   }, 1100);
 
@@ -4278,8 +4679,10 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
 
-  document.getElementById('btn-save').addEventListener('click', saveState);
-  document.getElementById('btn-export').addEventListener('click', () => {
+  const btnSave = document.getElementById('btn-save');
+  if (btnSave) btnSave.addEventListener('click', saveState);
+  const btnExport = document.getElementById('btn-export');
+  if (btnExport) btnExport.addEventListener('click', () => {
     if (state.storyChapters && state.storyChapters.length > 0 && confirm("Export as Novel (TXT)?\n\nCancel = Export World as JSON")) {
       exportNovel();
     } else {
@@ -4295,4 +4698,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   switchView('dashboard');
+  try {
+    const tb = document.querySelector('.topbar');
+    if (tb && !document.getElementById('ver-tag')) {
+      const s = document.createElement('span');
+      s.id = 'ver-tag';
+      s.style.cssText = 'margin-left:auto;font-size:0.75rem;color:var(--text-dim);padding-right:12px;';
+      s.textContent = 'v3-stable';
+      tb.appendChild(s);
+    }
+  } catch(e) {}
 });
