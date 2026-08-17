@@ -1547,7 +1547,7 @@ function renderMap() {
       <h3 class="card-title" style="margin-bottom:12px;">Region Control & Threat</h3>
       <p style="color:var(--text-muted);font-size:0.9rem;">Global Threat: <strong style="color:var(--gold);">${(state.globalThreat||1)}</strong></p>
       <div style="margin-top:10px;">
-        ${Object.keys(state.regionControl||{}).map(r => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;"><strong style="color:var(--gold);">${r}</strong> — ${(state.regionControl||{})[r]}</div>`).join("") || "<p class=\"text-dim\">Control data initializing...</p>"}
+        ${Object.keys(state.regionControl||{}).map(r => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;"><strong style="color:var(--gold);">${r}</strong> — ${(state.regionControl||{})[r]}</div>`).join("") || `<p style="color:var(--text-dim)">Control data initializing...</p>`}
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-ghost" onclick="shiftRegionControl()">Shift Control</button>
