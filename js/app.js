@@ -39,9 +39,22 @@ if (!state.currentRegion) state.currentRegion = 'Outerland';
 function revealApp() {
   try {
     const ls = document.getElementById('loading-screen');
-    const app = document.getElementById('app');
-    if (ls) { ls.classList.add('fade-out'); ls.classList.add('hidden'); ls.style.display = 'none'; }
-    if (app) { app.classList.remove('hidden'); app.style.display = ''; }
+    const appEl = document.getElementById('app');
+    if (ls) {
+      ls.classList.add('fade-out');
+      ls.classList.add('hidden');
+      ls.style.display = 'none';
+      ls.style.opacity = '0';
+      ls.style.visibility = 'hidden';
+      ls.style.pointerEvents = 'none';
+      ls.style.zIndex = '-1';
+    }
+    if (appEl) {
+      appEl.classList.remove('hidden');
+      appEl.style.display = 'flex';
+      appEl.style.visibility = 'visible';
+      appEl.style.opacity = '1';
+    }
   } catch (e) {}
 }
 

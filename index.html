@@ -22,7 +22,7 @@
   </div>
 
   <!-- Main App -->
-  <div id="app" class="hidden">
+  <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="logo">
@@ -143,18 +143,39 @@
   <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
 
   <script>
-    // Failsafe: never leave user on loading screen
+    // Failsafe: never leave user on loading screen (works even if app.js fails)
     function __forceShowApp() {
-      var ls = document.getElementById('loading-screen');
-      var app = document.getElementById('app');
-      if (ls) { ls.classList.add('hidden'); ls.style.display = 'none'; }
-      if (app) { app.classList.remove('hidden'); app.style.display = 'flex'; }
+      try {
+        var ls = document.getElementById('loading-screen');
+        var app = document.getElementById('app');
+        if (ls) {
+          ls.classList.add('hidden');
+          ls.classList.add('fade-out');
+          ls.style.display = 'none';
+          ls.style.opacity = '0';
+          ls.style.visibility = 'hidden';
+          ls.style.pointerEvents = 'none';
+          ls.style.zIndex = '-1';
+        }
+        if (app) {
+          app.classList.remove('hidden');
+          app.style.display = 'flex';
+          app.style.visibility = 'visible';
+          app.style.opacity = '1';
+        }
+      } catch (e) {}
     }
+    __forceShowApp();
+    setTimeout(__forceShowApp, 600);
+    setTimeout(__forceShowApp, 1500);
+    setTimeout(__forceShowApp, 3000);
     window.addEventListener('load', function () {
-      setTimeout(__forceShowApp, 800);
-      setTimeout(__forceShowApp, 2500);
+      __forceShowApp();
+      setTimeout(__forceShowApp, 500);
     });
-    setTimeout(__forceShowApp, 4000);
+    document.addEventListener('DOMContentLoaded', function () {
+      setTimeout(__forceShowApp, 300);
+    });
   </script>
 
 </body>
