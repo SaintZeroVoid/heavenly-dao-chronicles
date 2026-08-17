@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/styles.css?v=4">
-  <link rel="stylesheet" href="css/design-system.css?v=4">
+  <link rel="stylesheet" href="css/styles.css?v=5">
+  <link rel="stylesheet" href="css/design-system.css?v=5">
 </head>
 <body>
   <!-- Loading Screen -->
@@ -132,15 +132,29 @@
 </nav>
 <div id="toast" class="toast hidden"></div>
 
-  <script src="js/data.js?v=4"></script>
-  <script src="js/modules/ui.js?v=4"></script>
-  <script src="js/modules/combat.js?v=4"></script>
-  <script src="js/modules/graph.js?v=4"></script>
-  <script src="js/modules/lineage.js?v=4"></script>
-  <script src="js/modules/story.js?v=4"></script>
-  <script src="js/factions-extra.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
-  <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js').catch(function(){});}</script>
+    <script>
+    // Kill stale service workers / caches that keep broken app.js
+    (function () {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) { r.unregister(); });
+        });
+      }
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (keys) {
+          keys.forEach(function (k) { caches.delete(k); });
+        });
+      }
+    })();
+  </script>
+  <script src="js/data.js?v=5"></script>
+  <script src="js/modules/ui.js?v=5"></script>
+  <script src="js/modules/combat.js?v=5"></script>
+  <script src="js/modules/graph.js?v=5"></script>
+  <script src="js/modules/lineage.js?v=5"></script>
+  <script src="js/modules/story.js?v=5"></script>
+  <script src="js/factions-extra.js?v=5"></script>
+  <script src="js/app.v5.js"></script>
 
   <script>
     // Failsafe: never leave user on loading screen (works even if app.js fails)
