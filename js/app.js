@@ -3796,7 +3796,15 @@ function simTick() {
     try { recordYearlySnapshot(); } catch(e) {}
     try { rivalTick(); } catch(e) {}
     try { outerRebellionCheck(); prestigeTierFromRenown(); } catch(e) {}
-    try { dutyBonusesTick(); autoStipendYearly(); elderSeatLoyaltyCheck(); ancestorBlessingTick(); idleDividendTick(); recordPatriarchHall(); rivalPowerRace(); checkWinConditions(); largeClanUnrestTick(); goalProgressTick(); elderTermTick(); pillRoomMeritTick(); if (state.sim.month===1) yearlyPromotionBoard(); bottomUpLegendWin(); } catch(e) {}
+    try {
+      dutyBonusesTick(); autoStipendYearly(); elderSeatLoyaltyCheck();
+      ancestorBlessingTickGated();
+      idleDividendTick(); recordPatriarchHall(); rivalPowerRace(); checkWinConditions();
+      largeClanUnrestTick(); goalProgressTick(); elderTermTick(); pillRoomMeritTick();
+      if (state.sim.month===1) { yearlyPromotionBoard(); resetMeritYearCaps(); seatStagnationTick(); }
+      bottomUpLegendWin(); successionCrisisCheck(); geConflictEvent(); resourceClaimEvent();
+      checkClimbAchievement(); showEndingIfAny();
+    } catch(e) {}
     try { ensureSimDepth(); refreshYearlyAP(); tickOrders(); if (state.sim.month===3) tradeCaravan(); checkBankruptcy(); balancePassSoft(); } catch(e) {}
     try { ensureHierarchy(); const elders = getLineageCharacters().filter(x => hierarchyPower(x) >= 3); if (elders.length && Math.random()>0.5) state.clanWealth.renown = (state.clanWealth.renown||1)+1; } catch(e) {}
     try { if (state.sim.year % 10 === 0 && state.sim.month === 1) { simLog('Decade mark Y'+state.sim.year); try { decadeSummary(); } catch(e2) {} } } catch(e) {}
@@ -3876,6 +3884,7 @@ function simTick() {
   try { enforceLivingCap(); } catch(e) {}
   try { softLandingNearExtinction(); capWarnings(); } catch(e) {}
   try { if (state.sim && state.sim.month) progressionTick(); } catch(e) {}
+  try { managementMonthTick(); } catch(e) {}
   try { nearExtinctionWarn(); } catch(e) {}
   if (checkExtinction()) {
     saveState();
@@ -3928,6 +3937,8 @@ function startSimulation() {
 }
 
 function stopSimulation() {
+  try { stopScoreboard(); } catch(e) {}
+
   ensureSim();
   state.sim.running = false;
   if (_simTimer) { clearInterval(_simTimer); _simTimer = null; }
@@ -4071,7 +4082,7 @@ function renderSimulation() {
     <div class="card" style="margin-bottom:16px;">
       <h3 class="card-title" style="margin-bottom:10px;">Simulation Log</h3>
       <div style="max-height:260px;overflow:auto;">
-        ${(state.sim.log||[]).slice(0,25).map(l => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:${typeof colorizeSimLogLine==='function'?colorizeSimLogLine(l.msg):'var(--text-muted)'}"><span style="color:var(--gold);">Y${l.year}M${l.month}</span> — ${l.msg}</div>`).join("") || `<p style="color:var(--text-dim)">No ticks yet</p>`}
+        ${(state.sim.log||[]).slice(0,15).map(l => `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.85rem;color:${typeof colorizeSimLogLine==='function'?colorizeSimLogLine(l.msg):'var(--text-muted)'}"><span style="color:var(--gold);">Y${l.year}M${l.month}</span> — ${l.msg}</div>`).join("") || `<p style="color:var(--text-dim)">No ticks yet</p>`}
       </div>
     </div>
 
@@ -4384,6 +4395,15 @@ function ensurePause() {
 }
 
 function offerSimChoice(eventName) {
+  try {
+    ensureSimFinal();
+    if (state.simFinal && state.simFinal.pauseFilter === "important") {
+      const n = (eventName||"").toLowerCase();
+      const important = n.includes("death") || n.includes("succession") || n.includes("war") || n.includes("crisis") || n.includes("extinct") || n.includes("promotion") || n.includes("council");
+      if (!important) return false;
+    }
+  } catch(e) {}
+
   ensurePause();
   if (!state.sim.pauseOnEvents || state.sim.watchOnly || !state.sim.running) return false;
   // only pause sometimes on notable events
@@ -4423,7 +4443,15 @@ function offerSimChoice(eventName) {
 }
 
 function resolveSimChoice(effect) {
-  if (String(effect).indexOf('crisis_') === 0) return resolveCrisisEffect(effect);
+  if (String(effect).indexOf('crisis_') === 0) {
+    if (effect.indexOf('crisis_open')===0 || effect.indexOf('crisis_regent')===0 || effect.indexOf('crisis_emergency')===0)
+      return resolveCrisisCouncilEffects(effect);
+    return resolveCrisisEffect(effect);
+  }
+  if (String(effect).indexOf('res_') === 0) return resolveResourceEffect(effect);
+  if (String(effect).indexOf('corr_') === 0) return resolveCorruptEffect(effect);
+  if (String(effect).indexOf('peace_') === 0) return resolvePeaceEffect(effect);
+  if (String(effect).indexOf('cab_') === 0) return resolveCabinetEffect(effect);
   if (String(effect).indexOf('ext_') === 0) return resolveExtinctionChoice(effect);
   const plus = ['pill','rob','conscript','bribe','hide','flame_hunt','sell_intel','enforce_succ','split_gold','spar','tech_buy','tech_haggle'];
   if (plus.includes(effect)) return resolveSimPlusChoice(effect);
@@ -6210,132 +6238,41 @@ function groupClash3v3() {
 
 function renderSimSections() {
   ensureSimDepth();
-  ensureSimQuality();
-  const livingN = (typeof getLineageCharacters==='function'?getLineageCharacters().length:0);
-  return `${typeof renderSimPulse==='function'?renderSimPulse():''}
-    ${typeof clanStatusCard==='function'?clanStatusCard():''}
-    ${typeof renderDirtyBadge==='function'?renderDirtyBadge():''}
-    ${typeof renderProgressionPanel==='function'?renderProgressionPanel():''}
-    ${typeof renderSuccessionCouncil==='function'?renderSuccessionCouncil():''}
-    ${typeof renderSeatMap==='function'?renderSeatMap():''}
-    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;">
-      <button class="btn-primary" onclick="quickSetupDynasty()">⚡ Quick Setup</button>
-      <button class="btn-primary" onclick="startSimulation()">▶ Run</button>
-      <button class="btn-ghost" onclick="safeManualOrganize('cultivation')">Organize by Cultivation</button>
-      <button class="btn-ghost" onclick="toggleAdvancedTools()">Advanced Tools: ${(state.simQoL&&state.simQoL.advanced)?"ON":"OFF"}</button>
-      <select onchange="setDynastyGoal(this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
-        <option ${state.simQoL&&state.simQoL.goal==='Survival'?'selected':''}>Survival</option>
-        <option ${state.simQoL&&state.simQoL.goal==='Empire'?'selected':''}>Empire</option>
-        <option ${state.simQoL&&state.simQoL.goal==='Continental'?'selected':''}>Continental</option>
-      </select>
-      <button class="btn-ghost" onclick="promoteStrongestCoreToElder()">Promote Strongest Core→Elder</button>
-      <button class="btn-ghost" onclick="successionShortlist()">Succession Shortlist</button>
-      <button class="btn-ghost" onclick="massRecruitQuality('weak')">Recruit Labor x5</button>
-      <button class="btn-ghost" onclick="massRecruitQuality('talented')">Recruit Talent x5</button>
-      <button class="btn-ghost" onclick="buildMonument()">Monument (100g→renown)</button>
-      <button class="btn-ghost" onclick="saveNamedDynastySlot()">Named Dynasty Save</button>
-      <button class="btn-ghost" onclick="decadeScoreAttack()">Score Attack</button>
-    </div>
-    <div class="grid-3" style="margin-bottom:12px;${state.simQoL&&!state.simQoL.advanced?'display:none;':''}">
-      <div class="stat-box"><div class="label">Living</div><div class="value">${livingN}</div></div>
-      <div class="stat-box"><div class="label">Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
-      <div class="stat-box"><div class="label">Threat</div><div class="value">${state.globalThreat||1}</div></div>
-      <div class="stat-box"><div class="label">Prestige</div><div class="value" style="font-size:1rem;">${(state.hierarchy&&state.hierarchy.prestigeTier)||'—'}</div></div>
-      <div class="stat-box"><div class="label">Patriarch AP</div><div class="value">${state.simDepth.actionPoints}/${state.simDepth.maxAP}</div></div>
-      <div class="stat-box"><div class="label">Difficulty</div><div class="value" style="font-size:1rem;">${state.simDepth.difficulty}</div></div>
-    </div>
-    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;">
-      <select onchange="setMonthlyAgenda(this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
-        <option value="Train" ${state.simDepth.agenda==='Train'?'selected':''}>Agenda: Train</option>
-        <option value="Manage" ${state.simDepth.agenda==='Manage'?'selected':''}>Agenda: Manage</option>
-        <option value="Adventure" ${state.simDepth.agenda==='Adventure'?'selected':''}>Agenda: Adventure</option>
-      </select>
-      <select onchange="setSimDifficulty(this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
-        <option ${state.simDepth.difficulty==='Peaceful'?'selected':''}>Peaceful</option>
-        <option ${state.simDepth.difficulty==='Standard'?'selected':''}>Standard</option>
-        <option ${state.simDepth.difficulty==='Brutal'?'selected':''}>Brutal</option>
-      </select>
-      <select onchange="if(this.value) issueOrder(this.value); this.value='';" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
-        <option value="">Command Order…</option>
-        <option value="Train">Order: Train (3m)</option>
-        <option value="Tribute">Order: Tribute (3m)</option>
-        <option value="War Prep">Order: War Prep (3m)</option>
-      </select>
-      <button class="btn-ghost" onclick="bookmarkYear()">Bookmark Year</button>
-      <button class="btn-ghost" onclick="afterActionReport()">After-Action Report</button>
-      <button class="btn-ghost" onclick="twinHeirsEvent()">Twin Heirs Event</button>
-      <button class="btn-ghost" onclick="secondarySpouse()">Secondary Spouse</button>
-      <button class="btn-ghost" onclick="memorialHall()">Memorial Hall</button>
-      <button class="btn-ghost" onclick="tradeCaravan()">Trade Caravan</button>
-      <button class="btn-ghost" onclick="cultivationLadderBoard()">Cultivation Ladder</button>
-      <button class="btn-ghost" onclick="seatVacancyReport()">Seat Vacancies</button>
-      <button class="btn-ghost" onclick="massRecruit(10)">Mass Recruit x10</button>
-      <button class="btn-ghost" onclick="generationWaveSpawn()">Generation Wave</button>
-      <button class="btn-ghost" onclick="warDraft()">War Draft</button>
-      <button class="btn-ghost" onclick="demoteWeakestElder()">Demote Weakest Elder</button>
-      <button class="btn-ghost" onclick="toggleLockAncestor()">Lock Ancestor</button>
-      <button class="btn-ghost" onclick="setCustomTitle()">Custom Seat Title</button>
-      <button class="btn-ghost" onclick="dynastyAgeScore()">Dynasty Age Score</button>
-      <button class="btn-ghost" onclick="hallOfPatriarchs()">Hall of Patriarchs</button>
-      <button class="btn-ghost" onclick="rivalPowerRace()">Rival Power Race</button>
-      <button class="btn-ghost" onclick="simPlaybook()">Sim Playbook</button>
-      <button class="btn-ghost" onclick="searchLivingMembers()">Search Members</button>
-      <button class="btn-ghost" onclick="toggleCompactSim()">Compact UI</button>
-    </div>
-    <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:8px;">Pause log: ${(state.simDepth.pauseReasons||[]).slice(0,3).map(p=>`Y${p.y}M${p.m} ${p.reason}`).join(' · ')||'—'}</p>
-    <details class="card" style="margin-bottom:12px;padding:12px;" open>
-      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Hierarchy & Duties</summary>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
-        <button class="btn-ghost" onclick="safeManualOrganize('merit')">Auto-Organize</button>
-        <button class="btn-ghost" onclick="assignDuty('vaultkeeper')">Vaultkeeper</button>
-        <button class="btn-ghost" onclick="assignDuty('warleader')">War Leader</button>
-        <button class="btn-ghost" onclick="assignDuty('diplomat')">Diplomat</button>
-        <button class="btn-ghost" onclick="warLeaderSkirmish()">War Leader Skirmish</button>
-        <button class="btn-ghost" onclick="payRankStipends()">Pay Stipends</button>
-        <button class="btn-ghost" onclick="createCadetBranch()">Create Cadet Branch</button>
-        <button class="btn-ghost" onclick="exportDynastyReport()">Export Dynasty Report</button>
-      </div>
-    </details>
-    <details class="card" style="margin-bottom:12px;padding:12px;">
-      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Economy & Safety</summary>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
-        <button class="btn-ghost" onclick="upgradeBuilding('pillRoom')">Pill Room</button>
-        <button class="btn-ghost" onclick="upgradeBuilding('trainingGround')">Training Ground</button>
-        <button class="btn-ghost" onclick="upgradeBuilding('guardPost')">Guard Post</button>
-        <button class="btn-ghost" onclick="takeMerchantLoan()">Take Loan</button>
-        <button class="btn-ghost" onclick="payDebt()">Pay Debt</button>
-        <button class="btn-ghost" onclick="stabilizeClan()">Stabilize</button>
-        <button class="btn-ghost" onclick="hierarchyTribute()">Tribute</button>
-      </div>
-    </details>
-    <details class="card" style="margin-bottom:12px;padding:12px;">
-      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Crisis & Succession</summary>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
+  ensureSimQuality && ensureSimQuality();
+  ensureSimFinal && ensureSimFinal();
+  ensureProgression && ensureProgression();
+  const advanced = state.simQoL && state.simQoL.advanced;
+  let html = typeof renderCleanSimUI === "function" ? renderCleanSimUI() : "";
+  // close advanced wrapper opened in clean UI
+  if (!advanced) {
+    html += "</div>"; // close hidden advanced from clean if any
+  }
+  // Core hierarchy board only if advanced
+  if (advanced) {
+    html += typeof renderHierarchyBoard === "function" ? renderHierarchyBoard() : "";
+    html += `<div class="card" style="margin-bottom:12px;padding:12px;">
+      <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Legacy / Extra Tools</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
         <button class="btn-ghost" onclick="startCrisisChain()">Crisis Chain</button>
-        <button class="btn-ghost" onclick="successionRitual()">Succession Ritual</button>
-        <button class="btn-ghost" onclick="rankChallengeDuel()">Rank Challenge</button>
-        <button class="btn-ghost" onclick="simUntilSuccession()">Sim Until Succession</button>
-        <button class="btn-ghost" onclick="confirmDanger('Disown selected heir?', ()=>disownHeir())">Disown Heir</button>
-        <button class="btn-ghost" onclick="confirmDanger('Exile selected member?', ()=>exileMember())">Exile</button>
+        <button class="btn-ghost" onclick="tradeCaravan()">Trade Caravan</button>
+        <button class="btn-ghost" onclick="hierarchyTribute()">Tribute</button>
+        <button class="btn-ghost" onclick="stabilizeClan()">Stabilize</button>
+        <button class="btn-ghost" onclick="buildMonument()">Monument</button>
+        <button class="btn-ghost" onclick="decadeSummary()">Decade Summary</button>
+        <button class="btn-ghost" onclick="cultivationLadderBoard()">Cultivation Ladder</button>
+        <button class="btn-ghost" onclick="exportDynastyReport()">Export Report</button>
+        <button class="btn-ghost" onclick="warDraft()">War Draft</button>
+        <button class="btn-ghost" onclick="simPlaybook()">Playbook</button>
       </div>
-    </details>
-    <details class="card" style="margin-bottom:12px;padding:12px;">
-      <summary style="color:var(--gold);cursor:pointer;font-weight:600;">Combat Intents</summary>
-      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">
-        <button class="btn-ghost" onclick="manualCombatTurn('Strike')">Intent: Strike</button>
-        <button class="btn-ghost" onclick="manualCombatTurn('Defend')">Intent: Defend</button>
-        <button class="btn-ghost" onclick="manualCombatTurn('Skill')">Intent: Skill</button>
-        <button class="btn-ghost" onclick="manualCombatTurn('Flame')">Intent: Flame</button>
-        <button class="btn-primary" onclick="runCombatDemo()">Run Detailed Combat</button>
-        <button class="btn-ghost" onclick="groupClash3v3()">Group Clash 3v3</button>
-      </div>
-    </details>
-  `;
+      <p style="color:var(--text-dim);font-size:0.78rem;margin-top:8px;">Snapshot Organize is discouraged in Bottom-up mode (uses confirm).</p>
+    </div>`;
+    html += "</div>"; // close advanced
+  }
+  html += typeof paginatedLivingList === "function" ? paginatedLivingList() : "";
+  // pending choice + log stay in main renderSimulation
+  return html;
 }
 
-
-
-// ===== SIM DEPTH PACK 20 =====
 function ensureSimDepth() {
   ensureSim();
   ensureDynasty && ensureDynasty();
@@ -6742,6 +6679,7 @@ function quickSetupDynasty() {
   try { marrySpouse(); } catch(e) {}
   try { ensureHierarchy(); autoOrganizeHierarchy(); } catch(e) {}
   try { ensureSimDepth(); setSimDifficulty("Standard"); setMonthlyAgenda("Train"); } catch(e) {}
+  try { safeDefaultsNewDynasty(); } catch(e) {}
   showToast("Dynasty quick-setup complete — start the sim");
   switchView("simulation");
 }
@@ -7286,8 +7224,14 @@ function clanStatusCard() {
   const seats = (id) => living.filter(c => state.hierarchy && state.hierarchy.roles[c.id] === id).length;
   const caps = (state.simDepth && state.simDepth.rankCaps) || { grand_elder: 5, elder: 13 };
   const pct = Math.min(100, Math.round(living.length / cap * 100));
+  const goal = (state.simQoL && state.simQoL.goal) || "Survival";
+  let goalPct = 50;
+  if (goal === "Empire") goalPct = Math.min(100, Math.round(living.length / cap * 100));
+  else if (goal === "Continental") goalPct = ({ Unknown:10, Local:35, Regional:65, Continental:100 })[(state.hierarchy&&state.hierarchy.prestigeTier)||"Unknown"] || 10;
+  else goalPct = Math.min(100, living.length * 10);
   return `<div class="card" style="margin-bottom:12px;padding:14px;border-color:var(--gold);">
-    <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Clan Status · Goal: ${state.simQoL.goal}</div>
+    <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Clan Status · Goal: ${goal}</div>
+    <div style="height:8px;background:#222;border-radius:4px;overflow:hidden;margin-bottom:10px;"><div style="height:100%;width:${goalPct}%;background:linear-gradient(90deg,var(--gold),#6bcf8e);"></div></div>
     <div class="grid-3">
       <div class="stat-box"><div class="label">Living</div><div class="value">${living.length}<span style="font-size:0.75rem;color:var(--text-dim)">/${cap}</span></div></div>
       <div class="stat-box"><div class="label">Cap</div><div class="value">${pct}%</div></div>
@@ -7327,8 +7271,10 @@ function renderSeatMap() {
     }
     return `<div style="margin-bottom:8px;"><div style="color:var(--gold);font-size:0.85rem;margin-bottom:4px;">${title} (${list.length}/${max})</div><div style="display:flex;flex-wrap:wrap;">${cells.join("")}</div></div>`;
   };
+  const regent = getLineageCharacters().find(c => c.isRegent);
+  const seclusion = state.simFinal && state.simFinal.ancestorSeclusionUntil > (state.sim.year||0);
   return `<div class="card" style="margin-bottom:12px;padding:12px;">
-    <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Seat Map</div>
+    <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Seat Map ${regent ? "· Regent: "+regent.name : ""} ${seclusion ? "· Ancestor in seclusion" : ""}</div>
     ${box("Ancestor", by("ancestor"), 1)}
     ${box("Patriarch", by("patriarch"), 1)}
     ${box("Grand Elders", by("grand_elder"), 5)}
@@ -7679,24 +7625,26 @@ const RANK_LADDER = ["outer", "inner", "core", "elder", "grand_elder", "patriarc
 
 const RANK_REQUIREMENTS = {
   outer: { score: 0, merit: 0 },
-  inner: { score: 40, merit: 10 },
-  core: { score: 80, merit: 25 },
-  elder: { score: 140, merit: 50 },
-  grand_elder: { score: 220, merit: 80 },
-  patriarch: { score: 280, merit: 100 },
-  ancestor: { score: 350, merit: 130 }
+  inner: { score: 25, merit: 5 },
+  core: { score: 55, merit: 15 },
+  elder: { score: 100, merit: 35 },
+  grand_elder: { score: 160, merit: 60 },
+  patriarch: { score: 220, merit: 90 },
+  ancestor: { score: 300, merit: 120 }
 };
 
 function ensureProgression() {
   ensureHierarchy();
   if (!state.progression) {
     state.progression = {
-      merit: {}, // charId -> merit points
-      mode: "bottom_up", // bottom_up | snapshot (old auto-org)
+      merit: {},
+      mode: "bottom_up",
       autoPromote: true
     };
   }
   if (!state.progression.merit) state.progression.merit = {};
+  if (!state.progression.mode) state.progression.mode = "bottom_up";
+  if (state.progression.autoPromote == null) state.progression.autoPromote = true;
 }
 
 function getMerit(char) {
@@ -7761,6 +7709,7 @@ function tryPromoteMember(char, silent) {
   const next = nextRankId(rank);
   if (next === rank) return false;
   if (!meetsRequirement(char, next)) return false;
+  try { if (enforceLawsOnPromote(char, next) === false) return false; } catch(e) {}
   if (!seatAvailable(next)) {
     if (!silent) showToast("No free seat for " + next);
     return false;
@@ -7791,25 +7740,29 @@ function tryPromoteMember(char, silent) {
 }
 
 function progressionTick() {
-  // monthly: gain merit from agenda/cultivation, try auto-promote one step
   ensureProgression();
-  if (state.progression.mode !== "bottom_up") return;
+  if (!state.progression.mode) state.progression.mode = "bottom_up";
+  const bottomUp = state.progression.mode === "bottom_up";
   getLineageCharacters().forEach(char => {
     const score = typeof cultivationScore === "function" ? cultivationScore(char) : 0;
-    // passive merit from cultivation lifestyle
-    let m = 1;
-    if (state.simDepth && state.simDepth.agenda === "Train") m += 1;
-    if (char.education === "Combat") m += 1;
-    if (char.education === "Politics") m += 1;
+    // clearer monthly merit so players see progress
+    let m = 3;
+    if (state.simDepth && state.simDepth.agenda === "Train") m += 2;
+    if (char.education === "Combat" || char.education === "Politics" || char.education === "Alchemy") m += 2;
     if (typeof hierarchyPower === "function" && hierarchyPower(char) >= 2) m += 1;
-    addMerit(char, m);
-    // small merit for high cultivation relative progress
-    if (score > 100 && Math.random() > 0.7) addMerit(char, 2);
-    applyJuniorOuterRule && applyJuniorOuterRule(char);
-    if (state.progression.autoPromote) tryPromoteMember(char, true);
-    try { focusDoubleMerit(char); } catch(e) {}
+    if (state.dynasty && state.dynasty.focusId === char.id) m += 3;
+    try {
+      const mult = typeof moraleMeritMult === "function" ? moraleMeritMult() : 1;
+      m = Math.max(1, Math.round(m * mult));
+      meritCapAdd(char, m, "monthly");
+    } catch(e) { addMerit(char, m, "monthly"); }
+    if (score > 60) { try { meritCapAdd(char, 2, "cult"); } catch(e) { addMerit(char, 2); } }
+    if (bottomUp) {
+      try { applyJuniorOuterRule && applyJuniorOuterRule(char); } catch(e) {}
+      if (state.progression.autoPromote !== false) tryPromoteMember(char, true);
+    }
   });
-  try { masterDiscipleTick(); updateWaitingList(); } catch(e) {}
+  try { masterDiscipleTick(); updateWaitingList(); tryFillWaitingList(); } catch(e) {}
 }
 
 function setProgressionMode(mode) {
@@ -8054,6 +8007,9 @@ function ancestorLastDefense() {
     showToast("Ancestor held the line");
   } else {
     applyInjury(anc, 2);
+    if (Math.random() > 0.55) {
+      try { killCharacter(anc, "fell as last defense of the clan"); } catch(e) { anc.alive = false; }
+    }
     addMerit(anc, 10, "last defense sacrifice");
     state.storyChapters.push({
       title: "Ancestor Falls in Defense Y" + (state.sim.year || 1),
@@ -8076,7 +8032,7 @@ function canBePatriarchCandidate(char) {
   if (merit < state.council.minMeritForPatriarch) return { ok: false, reason: "Merit < " + state.council.minMeritForPatriarch };
   if (loy < state.council.minLoyalty) return { ok: false, reason: "Loyalty < " + state.council.minLoyalty };
   const r = currentRankId(char);
-  if (!["core","elder","grand_elder","patriarch"].includes(r)) return { ok: false, reason: "Rank must be Core+" };
+  if (!["elder","grand_elder","patriarch"].includes(r)) return { ok: false, reason: "Must be Elder or Grand Elder first" };
   return { ok: true, reason: "Eligible" };
 }
 
@@ -8183,12 +8139,14 @@ function renderSuccessionCouncil() {
     <p style="color:var(--text-dim);font-size:0.8rem;">Requirements: Core+ rank · Cult ≥ ${state.council.minScoreForPatriarch} · Merit ≥ ${state.council.minMeritForPatriarch} · Loyalty ≥ ${state.council.minLoyalty}</p>
     <p style="margin-top:8px;">Candidate: <strong style="color:var(--gold);">${cand ? cand.name : "None"}</strong> ${check ? (check.ok ? "· Eligible" : "· " + check.reason) : ""}</p>
     <p style="color:var(--text-dim);font-size:0.82rem;">Votes: ${yes} · Council size: ${voters.length} · Open: ${state.council.discussionOpen ? "YES" : "no"}</p>
+    <p style="color:var(--text-muted);font-size:0.78rem;">Voters: ${typeof renderCouncilVotes==='function'?renderCouncilVotes():'—'}</p>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
       <button class="btn-primary" onclick="openSuccessionCouncil()">Open Council</button>
       <button class="btn-ghost" onclick="nominateSuccessor()">Nominate Selected</button>
       <button class="btn-ghost" onclick="castSuccessionVote()">Cast Vote (as selected)</button>
       <button class="btn-primary" onclick="resolveSuccessionCouncil()">Resolve Council</button>
-      <button class="btn-ghost" onclick="ancestorLastDefense()">Ancestor Last Defense</button>
+      <button class="btn-ghost" onclick="successionDeadlockDuel()">Deadlock Duel</button>
+      <button class="btn-ghost" onclick="ancestorLastDefenseGated()">Ancestor Last Defense</button>
     </div>
   </div>`;
 }
@@ -8213,7 +8171,2166 @@ function bottomUpLegendWin() {
 }
 
 
+
+// ===== SIM FINAL PACK + CLEANUP =====
+function ensureSimFinal() {
+  ensureCouncil && ensureCouncil();
+  ensureProgression && ensureProgression();
+  ensureSimQoL && ensureSimQoL();
+  if (!state.simFinal) {
+    state.simFinal = {
+      lastDefenseYear: -99,
+      lastDefenseCooldown: 10,
+      ancestorSeclusionUntil: 0,
+      pauseFilter: "important", // all | important
+      meritYearGain: {}, // charId -> amount this year
+      meritYearCap: 40,
+      ballotMode: "public", // public | secret
+      achievements: {},
+      endingsShown: {}
+    };
+  }
+}
+
+function autoCouncilVote() {
+  ensureCouncil();
+  const candId = state.council.successorCandidateId;
+  if (!candId) return showToast("Nominate a candidate first");
+  const cand = state.characters.find(c => c.id === candId);
+  if (!cand) return showToast("Candidate missing");
+  const voters = typeof councilVoters === "function" ? councilVoters() : [];
+  voters.forEach(v => {
+    // vote by loyalty + power affinity
+    const loy = typeof loyaltyOf === "function" ? loyaltyOf(v) : 50;
+    const prefer = (typeof cultivationScore === "function" ? cultivationScore(cand) : 50) + loy;
+    // slight chance to dissent if low loyalty
+    if (loy < 30 && Math.random() > 0.5) return;
+    state.council.votes[v.id] = candId;
+  });
+  simLog("Council AI auto-voted (" + Object.keys(state.council.votes).length + " votes, " + (state.simFinal && state.simFinal.ballotMode || "public") + " ballot)");
+  saveState();
+  showToast("Auto-votes cast");
+  switchView("simulation");
+}
+
+function regentRefuseCheck() {
+  const reg = getLineageCharacters().find(c => c.isRegent);
+  const pat = getLineageCharacters().find(c => currentRankId(c) === "patriarch");
+  if (reg && pat && Math.random() > 0.9) {
+    simLog(reg.name + " is reluctant to yield regency fully.");
+    addLoyalty(reg, -5);
+  }
+}
+function ensureRegent() {
+  ensureHierarchy();
+  const pat = getLineageCharacters().find(c => currentRankId(c) === "patriarch");
+  if (pat) {
+    // clear regent flag
+    getLineageCharacters().forEach(c => { if (c.isRegent) c.isRegent = false; });
+    return;
+  }
+  // no patriarch — appoint strongest grand elder as regent
+  const ge = getLineageCharacters().filter(c => currentRankId(c) === "grand_elder" || currentRankId(c) === "ancestor")
+    .sort((a,b) => (typeof cultivationScore==='function'?cultivationScore(b)-cultivationScore(a):0));
+  if (!ge.length) return;
+  const reg = ge[0];
+  reg.isRegent = true;
+  simLog(reg.name + " acts as Regent until succession council confirms a Patriarch.");
+}
+
+function successionCrisisCheck() {
+  const pat = getLineageCharacters().find(c => currentRankId(c) === "patriarch");
+  if (pat) return;
+  const designated = state.succession && state.succession.designatedId;
+  const aliveDes = designated && getLineageCharacters().some(c => c.id === designated);
+  if (!aliveDes && !state.council.discussionOpen) {
+    ensureRegent();
+    state.sim.running = false;
+    if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+    state.sim.pendingChoice = {
+      event: "Succession Crisis — No Patriarch and no confirmed successor. The clan must act.",
+      options: [
+        { label: "Open Succession Council", effect: "crisis_open_council" },
+        { label: "Let Regent rule for now", effect: "crisis_regent" },
+        { label: "Emergency: promote strongest Core+", effect: "crisis_emergency_pat" }
+      ]
+    };
+    try { recordPauseReason("Succession crisis"); } catch(e) {}
+    showToast("Succession crisis");
+  }
+}
+
+function resolveCrisisCouncilEffects(effect) {
+  if (effect === "crisis_open_council") {
+    openSuccessionCouncil();
+    return;
+  }
+  if (effect === "crisis_regent") {
+    ensureRegent();
+    simLog("Regent continues to hold the clan together.");
+    state.sim.pendingChoice = null;
+    saveState();
+    switchView("simulation");
+    return;
+  }
+  if (effect === "crisis_emergency_pat") {
+    const c = getLineageCharacters().filter(x => ["core","elder","grand_elder"].includes(currentRankId(x)))
+      .sort((a,b) => cultivationScore(b)-cultivationScore(a))[0];
+    if (c) {
+      state.hierarchy.roles[c.id] = "patriarch";
+      c.isFounder = true;
+      state.lineage.founderId = c.id;
+      simLog("Emergency Patriarch: " + c.name);
+    }
+    state.sim.pendingChoice = null;
+    saveState();
+    switchView("simulation");
+  }
+}
+
+function councilBribeEvent() {
+  if (!state.council.discussionOpen) return showToast("Open council first");
+  if ((state.clanWealth.gold||0) < 30) return showToast("Need 30 gold");
+  state.clanWealth.gold -= 30;
+  const voters = councilVoters();
+  voters.slice(0, Math.min(3, voters.length)).forEach(v => {
+    if (state.council.successorCandidateId) state.council.votes[v.id] = state.council.successorCandidateId;
+    addLoyalty(v, -5);
+  });
+  simLog("Bribes influenced council votes (-30 gold, loyalty sting)");
+  saveState();
+  showToast("Votes swayed");
+  switchView("simulation");
+}
+
+function setBallotMode(m) {
+  ensureSimFinal();
+  state.simFinal.ballotMode = m;
+  saveState();
+  showToast("Ballot: " + m);
+}
+
+function canCallLastDefense() {
+  ensureSimFinal();
+  const y = state.sim.year || 1;
+  if (y - (state.simFinal.lastDefenseYear || -99) < (state.simFinal.lastDefenseCooldown || 10)) {
+    return { ok: false, reason: "Cooldown — wait until Y" + ((state.simFinal.lastDefenseYear||0) + state.simFinal.lastDefenseCooldown) };
+  }
+  if ((state.simFinal.ancestorSeclusionUntil || 0) > y) return { ok: false, reason: "Ancestor in seclusion until Y" + state.simFinal.ancestorSeclusionUntil };
+  const threat = state.globalThreat || 1;
+  const living = getLineageCharacters().length;
+  if (threat < 6 && living > 5) return { ok: false, reason: "Only when threat ≥ 6 or living ≤ 5" };
+  return { ok: true };
+}
+
+function ancestorLastDefenseGated() {
+  ensureSimFinal();
+  const check = canCallLastDefense();
+  if (!check.ok) return showToast(check.reason);
+  ancestorLastDefense();
+  state.simFinal.lastDefenseYear = state.sim.year || 1;
+  // seclusion after defense
+  state.simFinal.ancestorSeclusionUntil = (state.sim.year || 1) + 3;
+  const anc = getLineageCharacters().find(c => currentRankId(c) === "ancestor");
+  if (anc) simLog(anc.name + " enters seclusion to recover (3 years).");
+  saveState();
+}
+
+function ancestorBlessingTickGated() {
+  ensureSimFinal();
+  const y = state.sim.year || 1;
+  if ((state.simFinal.ancestorSeclusionUntil || 0) > y) return; // no blessing in seclusion
+  try { ancestorBlessingTick(); } catch(e) {}
+}
+
+function meritCapAdd(char, n, reason) {
+  ensureSimFinal();
+  ensureProgression();
+  if (!char || !n) return;
+  const id = char.id;
+  if (!state.simFinal.meritYearGain) state.simFinal.meritYearGain = {};
+  if (!state.simFinal.meritYearGain[id]) state.simFinal.meritYearGain[id] = 0;
+  const cap = state.simFinal.meritYearCap || 80;
+  const room = Math.max(0, cap - state.simFinal.meritYearGain[id]);
+  const give = Math.min(n, room);
+  if (give <= 0) return;
+  state.simFinal.meritYearGain[id] += give;
+  state.progression.merit[id] = (getMerit(char) || 0) + give;
+}
+
+function resetMeritYearCaps() {
+  ensureSimFinal();
+  state.simFinal.meritYearGain = {};
+}
+
+function seatStagnationTick() {
+  const elders = getLineageCharacters().filter(c => currentRankId(c) === "elder");
+  const cap = ((state.simDepth && state.simDepth.rankCaps) || {}).elder || 13;
+  if (elders.length >= cap) return;
+  // every 30 years open pressure - auto promote top of waiting list
+  if ((state.sim.year || 1) % 30 === 0 && state.sim.month === 1) {
+    updateWaitingList();
+    const id = (state.council.waitingList || [])[0];
+    if (id) {
+      const c = state.characters.find(x => x.id === id);
+      if (c) {
+        state.hierarchy.roles[c.id] = "elder";
+        simLog("Seat stagnation broken: " + c.name + " elevated to Elder");
+      }
+    }
+  }
+}
+
+function recruitCostScale(base) {
+  const n = getLineageCharacters().length;
+  return Math.floor(base * (1 + n / 200));
+}
+
+function massRecruitScaled() {
+  const unit = recruitCostScale(8);
+  const n = 5;
+  const cost = unit * n;
+  if ((state.clanWealth.gold||0) < cost) return showToast("Need " + cost + " gold (scales with population)");
+  // temporarily use gold then massRecruit logic
+  const room = Math.max(0, (typeof LIVING_CAP!=="undefined"?LIVING_CAP:1000) - getLineageCharacters().length);
+  const count = Math.min(n, room);
+  if (!count) return showToast("At cap");
+  state.clanWealth.gold -= unit * count;
+  for (let i=0;i<count;i++) {
+    const c = generateCharacter("Dou Zhe");
+    c.alive = true; c.isHeir = true; c.lineageId = state.lineage.founderId;
+    c.generation = state.lineage.generations || 1;
+    c.talent = "Ordinary";
+    state.characters.push(c);
+    state.hierarchy.roles[c.id] = "outer";
+    try { ensureProgression(); state.progression.merit[c.id] = 0; } catch(e) {}
+  }
+  markHierarchyDirty && markHierarchyDirty("recruit");
+  simLog("Recruited " + count + " at scaled cost " + (unit*count));
+  saveState();
+  showToast("Recruited " + count);
+  switchView("simulation");
+}
+
+function whatShouldIDo() {
+  ensureSimQoL && ensureSimQoL();
+  const living = getLineageCharacters().length;
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const goal = (state.simQoL && state.simQoL.goal) || "Survival";
+  const tips = [];
+  if (!state.lineage.founderId) tips.push("Quick Setup");
+  else if (!getLineageCharacters().some(c => currentRankId(c)==="patriarch")) tips.push("Open Succession Council or resolve crisis");
+  else if (living < 8) tips.push("Recruit Labor or Generation Wave");
+  else if (gold < 40) tips.push("Trade Caravan / Tribute");
+  else if ((state.orgControl && state.orgControl.dirty)) tips.push("Review progression — promote ready members");
+  else if (goal === "Empire") tips.push("Mass recruit toward 1000 living");
+  else if (goal === "Continental") tips.push("Monument + Honor Banquet for renown");
+  else tips.push("Run sim with Pause important-only · train Focus character");
+  alert("What you should do:\n1. " + tips[0] + (tips[1] ? "\n2. " + tips[1] : ""));
+}
+
+function setPauseFilter(f) {
+  ensureSimFinal();
+  state.simFinal.pauseFilter = f;
+  saveState();
+  showToast("Pause filter: " + f);
+}
+
+function memberDossier() {
+  const c = getActiveChar();
+  if (!c) return showToast("Select a member");
+  const r = currentRankId(c);
+  const next = nextRankId(r);
+  const p = typeof progressPct === "function" ? progressPct(c, next) : {};
+  alert(c.name + "\nRank: " + r + " → " + next +
+    "\nCult: " + (p.score||"?") + " / need " + ((p.req&&p.req.score)||"?") +
+    "\nMerit: " + (p.merit||"?") + " / need " + ((p.req&&p.req.merit)||"?") +
+    "\nLoyalty: " + (typeof loyaltyOf==='function'?loyaltyOf(c):"?") +
+    "\nEducation: " + (c.education||"none") +
+    "\nTalent: " + (c.talent||"?") +
+    "\n" + (c.star||"") + " " + (c.realm||""));
+}
+
+function seasonLabel() {
+  const m = state.sim.month || 1;
+  if (m <= 3) return "Spring";
+  if (m <= 6) return "Summer";
+  if (m <= 9) return "Autumn";
+  return "Winter";
+}
+
+function checkClimbAchievement() {
+  ensureSimFinal();
+  getLineageCharacters().forEach(c => {
+    if (currentRankId(c) === "ancestor" && getMerit(c) >= 130 && !state.simFinal.achievements[c.id + "_climb"]) {
+      state.simFinal.achievements[c.id + "_climb"] = true;
+      state.storyChapters.push({ title: "Achievement: Outer to Ancestor", content: c.name + " climbed the entire ladder." });
+      showToast("Achievement: Outer → Ancestor");
+    }
+  });
+}
+
+function showEndingIfAny() {
+  ensureSimFinal();
+  const living = getLineageCharacters().length;
+  if (living === 0 && !state.simFinal.endingsShown.extinction) {
+    state.simFinal.endingsShown.extinction = true;
+    alert("ENDING: Extinction\nThe bloodline is no more.");
+  }
+  if (living >= (typeof LIVING_CAP!=="undefined"?LIVING_CAP:1000) && !state.simFinal.endingsShown.empire) {
+    state.simFinal.endingsShown.empire = true;
+    alert("ENDING: Empire\n1000 living souls under one blood name.");
+  }
+  if ((state.hierarchy&&state.hierarchy.prestigeTier)==="Continental" && state.council && state.succession && state.succession.designatedId && !state.simFinal.endingsShown.council) {
+    state.simFinal.endingsShown.council = true;
+    alert("ENDING: Council Dynasty\nContinental prestige with lawful succession.");
+  }
+}
+
+function geConflictEvent() {
+  const ges = getLineageCharacters().filter(c => currentRankId(c) === "grand_elder");
+  if (ges.length < 2) return;
+  if (Math.random() > 0.08) return;
+  const a = ges[0], b = ges[1];
+  addLoyalty(a, -8); addLoyalty(b, -8);
+  simLog("Inner conflict: " + a.name + " and " + b.name + " split the Grand Elder wing.");
+}
+
+function resourceClaimEvent() {
+  if (Math.random() > 0.06) return;
+  state.sim.pendingChoice = {
+    event: "Resource Claim — A herb mountain is contested by another clan.",
+    options: [
+      { label: "Fight for it (War Draft style)", effect: "res_fight" },
+      { label: "Buy rights (-40 gold)", effect: "res_buy" },
+      { label: "Walk away", effect: "res_skip" }
+    ]
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+}
+
+function resolveResourceEffect(effect) {
+  if (effect === "res_fight") { try { warDraft(); } catch(e) {} }
+  else if (effect === "res_buy") {
+    if ((state.clanWealth.gold||0) >= 40) { state.clanWealth.gold -= 40; state.clanWealth.herbs = (state.clanWealth.herbs||0)+3; simLog("Herb mountain rights purchased"); }
+    else showToast("Not enough gold");
+  } else simLog("Clan walked away from the claim.");
+  state.sim.pendingChoice = null;
+  saveState();
+  switchView("simulation");
+}
+
+function marriageAllianceRival() {
+  ensureDynasty && ensureDynasty();
+  if ((state.clanWealth.gold||0) < 35) return showToast("Need 35 gold");
+  state.clanWealth.gold -= 35;
+  if (state.dynasty.rival) {
+    state.dynasty.rival.hostility = 0;
+    state.dynasty.rival.allianceUntil = (state.sim.year||1) + 10;
+  }
+  simLog("Marriage alliance with rival — peace for a decade.");
+  saveState();
+  showToast("Rival alliance 10 years");
+  switchView("simulation");
+}
+
+
+
+function renderCleanSimUI() {
+  ensureSimFinal();
+  ensureProgression && ensureProgression();
+  const season = typeof seasonLabel === "function" ? seasonLabel() : "";
+  const mode = (state.progression && state.progression.mode) || "bottom_up";
+  return `
+    ${typeof renderSimPulse==='function'?renderSimPulse():''}
+    ${typeof renderSimTabs==='function'?renderSimTabs():''}
+    ${typeof renderAlertsStrip==='function'?renderAlertsStrip():''}
+    <div style="display:${(state.simFinish&&state.simFinish.tab==='politics')?'none':'block'}">${typeof renderManagementDashboard==='function'?renderManagementDashboard():''}</div>
+    ${typeof clanStatusCard==='function'?clanStatusCard():''}
+    <p style="color:var(--text-dim);font-size:0.85rem;margin:6px 0;">Season: <strong style="color:var(--gold);">${season}</strong> · Progression: <strong style="color:var(--gold);">${mode}</strong> · Pause filter: ${(state.simFinal&&state.simFinal.pauseFilter)||'important'}</p>
+    ${typeof renderDirtyBadge==='function'?renderDirtyBadge():''}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <button class="btn-primary" onclick="quickSetupDynasty()">Quick Setup</button>
+      <button class="btn-primary" onclick="startSimulation()">Run</button>
+      <button class="btn-ghost" onclick="try{stopSimulation()}catch(e){};try{afterActionReport()}catch(e){}">Stop + Report</button>
+      <button class="btn-ghost" onclick="whatShouldIDo()">What should I do?</button>
+      <button class="btn-ghost" onclick="memberDossier()">Member Dossier</button>
+      <button class="btn-ghost" onclick="promoteAllReady()">Promote All Ready</button>
+      <button class="btn-primary" onclick="trainFocusMerit()">Train Focus (+10 merit)</button>
+      <button class="btn-ghost" onclick="yearEndReport()">Year Report</button>
+      <button class="btn-ghost" onclick="openSuccessionCouncil()">Succession Council</button>
+      <button class="btn-ghost" onclick="autoCouncilVote()">Council Auto-Vote</button>
+      <button class="btn-ghost" onclick="councilBribeEvent()">Bribe Votes</button>
+      <button class="btn-ghost" onclick="ancestorLastDefenseGated()">Ancestor Last Defense</button>
+      <button class="btn-ghost" onclick="massRecruitScaled()">Recruit (scaled)</button>
+      <button class="btn-ghost" onclick="marriageAllianceRival()">Rival Alliance</button>
+      <button class="btn-ghost" onclick="setPauseFilter('important')">Pause: Important</button>
+      <button class="btn-ghost" onclick="setPauseFilter('all')">Pause: All</button>
+      <button class="btn-ghost" onclick="toggleAdvancedTools()">More tools: ${(state.simQoL&&state.simQoL.advanced)?"ON":"OFF"}</button>
+    </div>
+    ${!(state.mgmt&&state.mgmt.mgmtOnly) && ( !state.simFinish || state.simFinish.tab==='people' || state.simFinish.tab==='management') && typeof renderProgressionPanel==='function'?renderProgressionPanel():''}
+    ${!(state.mgmt&&state.mgmt.mgmtOnly) && (!state.simFinish||state.simFinish.tab==='politics'||state.simFinish.tab==='management') && typeof renderSuccessionCouncil==='function'?renderSuccessionCouncil():''}
+    ${typeof renderSeatMap==='function'?renderSeatMap():''}
+  `;
+}
+
+// CLEAN_SIM_UI
+
+
+function trainFocusMerit() {
+  ensureProgression();
+  const char = (typeof getFocusChar === "function" && getFocusChar()) || getActiveChar();
+  if (!char) return showToast("Select or set Focus character");
+  addMerit(char, 10, "focused training");
+  char.experience = Math.min(100, (char.experience || 20) + 2);
+  char.douQi = (char.douQi || 100) + 50;
+  saveState();
+  showToast(char.name + " merit → " + getMerit(char));
+  switchView("simulation");
+}
+
+function tryFillWaitingList() {
+  ensureCouncil && ensureCouncil();
+  updateWaitingList && updateWaitingList();
+  const list = (state.council && state.council.waitingList) || [];
+  if (!list.length) return;
+  // if elder seat free, promote first in queue
+  if (typeof seatAvailable === "function" && seatAvailable("elder")) {
+    const c = state.characters.find(x => x.id === list[0]);
+    if (c && currentRankId(c) !== "elder") {
+      state.hierarchy.roles[c.id] = "elder";
+      simLog(c.name + " rose from waiting list into an Elder seat");
+      try { if (state.council.elderTermStart) state.council.elderTermStart[c.id] = state.sim.year; } catch(e) {}
+    }
+  }
+  if (typeof seatAvailable === "function" && seatAvailable("grand_elder")) {
+    const c = state.characters.find(x => x.id === list[0] || list[1]);
+    if (c && meetsRequirement(c, "grand_elder") && currentRankId(c) === "elder") {
+      state.hierarchy.roles[c.id] = "grand_elder";
+      simLog(c.name + " rose from waiting list into Grand Elder");
+    }
+  }
+}
+
+function yearEndReport() {
+  ensureSimQuality && ensureSimQuality();
+  const d = state.simQuality && state.simQuality.lastDelta;
+  const living = getLineageCharacters().length;
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const promos = (state.sim.log || []).filter(l => (l.msg || "").toLowerCase().includes("promoted")).slice(0, 5);
+  let t = "Year Report Y" + (state.sim.year || 1) + "\nLiving: " + living + "\nGold: " + gold;
+  if (d) t += "\nΔ Living: " + d.livingDelta + " · Δ Gold: " + d.goldDelta + " · Deaths: " + (d.deaths || 0);
+  t += "\nPromotions:\n" + (promos.map(p => p.msg).join("\n") || "(none logged)");
+  alert(t);
+}
+
+function renderCouncilVotes() {
+  ensureCouncil();
+  const votes = state.council.votes || {};
+  const candId = state.council.successorCandidateId;
+  const lines = Object.keys(votes).map(vid => {
+    const v = state.characters.find(c => c.id === vid);
+    const forCand = votes[vid] === candId;
+    return (v ? v.name : vid) + (forCand ? " ✓" : " (other)");
+  });
+  return lines.length ? lines.join(", ") : "No votes yet";
+}
+
+
+const STORY_CAP = 100;
+function pushChapter(ch) {
+  state.storyChapters = state.storyChapters || [];
+  state.storyChapters.push(ch);
+  if (state.storyChapters.length > STORY_CAP) state.storyChapters.splice(0, state.storyChapters.length - STORY_CAP);
+}
+
+function successionDeadlockDuel() {
+  ensureCouncil();
+  const candId = state.council.successorCandidateId;
+  // find top two by votes or top two by power
+  const tally = {};
+  Object.values(state.council.votes || {}).forEach(id => { tally[id] = (tally[id]||0)+1; });
+  let ids = Object.keys(tally).sort((a,b) => tally[b]-tally[a]);
+  if (ids.length < 2) {
+    ids = getLineageCharacters().filter(c => canBePatriarchCandidate(c).ok).sort((a,b)=>cultivationScore(b)-cultivationScore(a)).slice(0,2).map(c=>c.id);
+  }
+  if (ids.length < 2) return showToast("Need two candidates for duel");
+  const a = state.characters.find(c => c.id === ids[0]);
+  const b = state.characters.find(c => c.id === ids[1]);
+  if (typeof simulateDetailedBattle === "function") {
+    const res = simulateDetailedBattle(a, b);
+    const winner = res.win ? a : b;
+    state.council.successorCandidateId = winner.id;
+    state.council.votes = {};
+    councilVoters().forEach(v => { state.council.votes[v.id] = winner.id; });
+    simLog("Council deadlock broken by duel — " + winner.name + " prevails");
+    showToast("Duel winner: " + winner.name);
+  }
+  saveState();
+  switchView("simulation");
+}
+
+
+// ===== FULL CLAN MANAGEMENT SIM =====
+function ensureManagement() {
+  ensureSim();
+  ensureDynasty && ensureDynasty();
+  ensureProgression && ensureProgression();
+  ensureWealth && ensureWealth();
+  if (!state.mgmt) {
+    state.mgmt = {
+      departments: {
+        military: { level: 1, budget: 0 },
+        alchemy: { level: 1, budget: 0 },
+        diplomacy: { level: 1, budget: 0 },
+        economy: { level: 1, budget: 0 },
+        intelligence: { level: 1, budget: 0 }
+      },
+      monthlyOrders: [], // up to 3
+      policies: {
+        taxation: "normal", // low | normal | high
+        recruitment: "steady", // closed | steady | aggressive
+        training: "balanced", // safe | balanced | harsh
+        openness: "neutral" // isolation | neutral | expansion
+      },
+      food: 50,
+      morale: 60,
+      security: 50,
+      lastMonthReport: null,
+      autoManage: false
+    };
+  }
+}
+
+function setPolicy(key, val) {
+  ensureManagement();
+  ensureMgmtDepth();
+  const actor = getActiveChar();
+  if ((key === "taxation") && actor && !(currentRankId(actor) === "patriarch" || actor.isRegent)) {
+    return showToast("Only Patriarch/Regent may change tax policy");
+  }
+  const dangerous = (key === "taxation" && val === "high") || (key === "recruitment" && val === "aggressive");
+  if (dangerous && !confirm("Confirm policy: " + key + " → " + val + "?")) return;
+  try { pushPolicyHistory(snapshotPolicies()); } catch(e) {}
+  try { policyRequiresCouncil(key, val); } catch(e) {}
+  state.mgmt.policies[key] = val;
+  saveState();
+  showToast(key + " → " + val);
+  switchView("simulation");
+}
+
+function setDeptBudget(dept, amount) {
+  ensureManagement();
+  amount = Math.max(0, Math.min(50, Number(amount) || 0));
+  if (!state.mgmt.departments[dept]) return;
+  state.mgmt.departments[dept].budget = amount;
+  saveState();
+}
+
+function upgradeDepartment(dept) { return upgradeDepartmentCapped(dept); }
+
+function queueMonthlyOrder(order) {
+  ensureManagement();
+  if (state.mgmt.monthlyOrders.length >= 3) return showToast("Max 3 monthly orders");
+  state.mgmt.monthlyOrders.push(order);
+  saveState();
+  showToast("Order queued: " + order);
+  switchView("simulation");
+}
+
+function clearMonthlyOrders() {
+  ensureManagement();
+  state.mgmt.monthlyOrders = [];
+  saveState();
+  switchView("simulation");
+}
+
+function managementMonthTick() {
+  ensureManagement();
+  if (state.council && state.council.discussionOpen) {
+    // frozen during council — only minimal upkeep note
+    return;
+  }
+  const p = state.mgmt.policies;
+  const deps = state.mgmt.departments;
+  let goldDelta = 0;
+  let foodDelta = 0;
+  let moraleDelta = 0;
+  let securityDelta = 0;
+  const living = getLineageCharacters().length || 1;
+
+  try { ensureMgmtDepth(); } catch(e) {}
+  // Class-based food & stipend
+  let foodNeed = 0;
+  let stipend = 0;
+  getLineageCharacters().forEach(ch => {
+    foodNeed += classFoodCost(ch);
+    stipend += classGoldStipend(ch);
+  });
+  foodDelta -= foodNeed * 0.35;
+  goldDelta -= stipend * 0.15;
+
+  // Upkeep
+  let upkeep = Math.floor(living * 0.15) + Object.values(deps).reduce((s, d) => s + (d.budget || 0), 0);
+  if (state.mgmt.warFooting) upkeep = Math.floor(upkeep * 1.5);
+  // war footing dept effectiveness felt via security
+  securityDelta += Math.floor(state.mgmt.departments.military.level * (typeof warFootingDeptMod==='function'?warFootingDeptMod('military'):1));
+  goldDelta -= upkeep;
+  if (state.mgmt.warFooting) {
+    securityDelta += 3;
+    moraleDelta -= 1;
+    getLineageCharacters().slice(0, 8).forEach(ch => { try { meritCapAdd(ch, 1, "war footing"); } catch(e) {} });
+  }
+  if (state.mgmt.border === "War") {
+    goldDelta -= 8;
+    securityDelta += 2;
+    if (Math.random() > 0.85) {
+      // tribute/reparations risk
+      goldDelta -= 10;
+      simLog("War pressure extracts gold.");
+    }
+  } else if (state.mgmt.border === "Tension") {
+    goldDelta -= 3;
+  }
+  // Warehouse auto-draw if food low
+  if (state.mgmt.food < 20) {
+    const w = warehouseWithdraw("food", 15);
+    foodDelta += w;
+  }
+  // Surplus food to warehouse
+  if (state.mgmt.food > 100) {
+    const store = warehouseStore("food", Math.floor((state.mgmt.food - 100) / 2));
+    foodDelta -= store;
+  }
+  // Department head merit
+  Object.keys(state.mgmt.deptHeads || {}).forEach(dept => {
+    const id = state.mgmt.deptHeads[dept];
+    const head = state.characters.find(x => x.id === id && x.alive !== false);
+    if (head) try { meritCapAdd(head, 2 + deptHeadBonus(dept), "dept work"); if (deptHeadBonus(dept) >= 3) meritCapAdd(head, 2, "excellent head"); } catch(e) {}
+  });
+
+
+  // Taxation policy
+  const taxRate = p.taxation === "high" ? 1.4 : p.taxation === "low" ? 0.6 : 1;
+  const income = Math.floor((5 + (deps.economy.level * 3) + ((state.clanWealth.renown || 1) * 0.5)) * taxRate);
+  goldDelta += income;
+  if (p.taxation === "high") moraleDelta -= 2;
+  if (p.taxation === "low") moraleDelta += 1;
+
+  // Food
+  foodDelta += 3 + deps.economy.level - Math.floor(living / 20);
+  if (state.mgmt.food + foodDelta < 10) moraleDelta -= 3;
+
+  // Military / security
+  securityDelta += deps.military.level + (deps.military.budget > 0 ? 1 : 0) - Math.floor((state.globalThreat || 1) / 3);
+  if (p.training === "harsh") {
+    securityDelta += 1;
+    getLineageCharacters().forEach(ch => {
+      try { meritCapAdd(ch, 1, "harsh training"); } catch(e) {}
+      if (Math.random() > 0.92) applyInjury(ch, 1);
+    });
+    moraleDelta -= 1;
+  } else if (p.training === "safe") {
+    moraleDelta += 1;
+  }
+
+  // Alchemy budget
+  if (deps.alchemy.budget > 0 || deps.alchemy.level > 1) {
+    getLineageCharacters().filter(ch => hierarchyPower(ch) >= 1).slice(0, 5).forEach(ch => {
+      ch.foundation = Math.min(100, (ch.foundation || 40) + 0.5 * deps.alchemy.level);
+      try { meritCapAdd(ch, 1, "alchemy dept"); } catch(e) {}
+    });
+  }
+
+  // Diplomacy
+  if (deps.diplomacy.level >= 2 && Math.random() > 0.85) {
+    state.clanWealth.renown = (state.clanWealth.renown || 1) + 1;
+  }
+
+  // Intelligence
+  if (deps.intelligence.level >= 2 && Math.random() > 0.9) {
+    state.globalThreat = Math.max(1, (state.globalThreat || 1) - 1);
+    simLog("Intelligence network softens external threat.");
+  }
+
+  // Recruitment policy
+  if (p.recruitment === "aggressive") foodDelta -= 2; // next month pressure
+  if (p.recruitment === "aggressive" && living < (typeof LIVING_CAP !== "undefined" ? LIVING_CAP : 1000) - 5) {
+    if ((state.clanWealth.gold || 0) + goldDelta > 20 && Math.random() > 0.7) {
+      goldDelta -= 8;
+      try {
+        const c = generateCharacter("Dou Zhe");
+        c.alive = true; c.isHeir = true; c.lineageId = state.lineage.founderId;
+        c.generation = state.lineage.generations || 1;
+        state.characters.push(c);
+        state.hierarchy.roles[c.id] = "outer";
+        ensureProgression(); state.progression.merit[c.id] = 0;
+      } catch(e) {}
+    }
+  } else if (p.recruitment === "closed") {
+    moraleDelta -= 0.5;
+  }
+
+  // Execute monthly orders
+  (state.mgmt.monthlyOrders || []).forEach(order => {
+    if (order === "stockpile_food") { foodDelta += 8; goldDelta -= 5; }
+    if (order === "patrol") { securityDelta += 3; goldDelta -= 4; }
+    if (order === "festival") { moraleDelta += 5; goldDelta -= 10; }
+    if (order === "closed_door") {
+      getLineageCharacters().slice(0, 3).forEach(ch => {
+        try { meritCapAdd(ch, 4, "closed door"); } catch(e) {}
+        ch.douQi = (ch.douQi || 100) + 80;
+      });
+      goldDelta -= 6;
+    }
+    if (order === "expand_trade") { goldDelta += 12 + deps.economy.level * 2; }
+  });
+  state.mgmt.monthlyOrders = [];
+
+  // Apply
+  state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) + goldDelta);
+  state.mgmt.food = Math.max(0, Math.min(200, (state.mgmt.food || 50) + foodDelta));
+  state.mgmt.morale = Math.max(0, Math.min(100, (state.mgmt.morale || 60) + moraleDelta));
+  state.mgmt.security = Math.max(0, Math.min(100, (state.mgmt.security || 50) + securityDelta));
+
+  // Low morale / security effects
+  if (state.mgmt.morale < 25 && Math.random() > 0.7) {
+    simLog("Low morale sparks unrest among Outer members.");
+    getLineageCharacters().filter(ch => currentRankId(ch) === "outer").forEach(ch => {
+      try { addLoyalty(ch, -3); } catch(e) {}
+    });
+  }
+  if (state.mgmt.security < 25) {
+    state.globalThreat = Math.min(10, (state.globalThreat || 1) + (Math.random() > 0.6 ? 1 : 0));
+  }
+
+  state.mgmt.lastMonthReport = {
+    year: state.sim.year,
+    month: state.sim.month,
+    goldDelta: goldDelta,
+    food: state.mgmt.food,
+    morale: state.mgmt.morale,
+    security: state.mgmt.security,
+    upkeep: upkeep,
+    income: income,
+    trade: (typeof tradeRouteIncome === "function" ? 0 : 0) // filled after routes in later hook
+  };
+
+  if (state.mgmt.autoManage) {
+    Object.keys(deps).forEach(k => { if (deps[k].budget > 15) deps[k].budget = 10; });
+  }
+  try {
+    ensureMgmtPolish();
+    tickConstruction();
+    headVacancyPenalty();
+    let d = null;
+    if (state.mgmt.hardMode) { d = rollDisaster(); if (Math.random() > 0.5) d = rollDisaster() || d; }
+    else if (Math.random() > 0.5) d = rollDisaster();
+    if (d) applyDisaster(d);
+    factionPressureTick();
+    corruptHeadEvent();
+    collapseAndGoldenTick();
+    const routeGold = tradeRouteIncome();
+    if (routeGold) {
+      const reserved = applyReserveFund(routeGold);
+      state.clanWealth.gold += (routeGold - reserved);
+    }
+    // hard mode income haircut
+    if (state.mgmt.hardMode && state.mgmt.lastMonthReport && state.mgmt.lastMonthReport.income) {
+      // already applied roughly via disasters; small extra drain
+      state.clanWealth.gold = Math.max(0, state.clanWealth.gold - 2);
+    }
+    if (state.sim.month === 12) {
+      ensureMgmtDepth();
+      state.mgmt.yearLedger.push({
+        year: state.sim.year, gold: state.clanWealth.gold, food: state.mgmt.food,
+        morale: state.mgmt.morale, security: state.mgmt.security, living: getLineageCharacters().length
+      });
+      if (state.mgmt.yearLedger.length > 40) state.mgmt.yearLedger.shift();
+    }
+    censusEveryDecade();
+    if (state.mgmt.border === "War" && Math.random() > 0.94) peaceTreatyEvent();
+    priceShockTick();
+    debtInterestTick();
+    tradeRouteLevelTick();
+    pauseIfRed();
+    goldenAgeVictoryTick();
+    earlyGameIncomeFloor();
+    tutorialTick();
+    regentTermTick();
+    yearAutosave();
+    softCapDeptLevels();
+    try {
+      if (state.simFinish) state.simFinish.peakLiving = Math.max(state.simFinish.peakLiving || 0, getLineageCharacters().length);
+    } catch(e) {}
+    // annual cabinet
+    if (state.sim.month === 1 && Math.random() > 0.4) { /* optional auto */ }
+    // defeat detection
+    if (getLineageCharacters().length === 0) defeatCard("extinction");
+    if ((state.mgmt.food||0) <= 0 && (state.mgmt.morale||0) < 15) defeatCard("famine");
+  } catch(e) {}
+}
+
+function toggleAutoManage() {
+  ensureManagement();
+  state.mgmt.autoManage = !state.mgmt.autoManage;
+  saveState();
+  showToast("Auto-manage: " + (state.mgmt.autoManage ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function renderManagementDashboard() {
+  ensureManagement();
+  const m = state.mgmt;
+  const r = m.lastMonthReport;
+  const deps = m.departments;
+  const depRow = (key, label) => {
+    const d = deps[key];
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;">
+      <div><strong style="color:var(--gold);">${label}</strong> · Lv.${d.level} · Budget ${d.budget}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn-ghost" onclick="setDeptBudget('${key}', ${(d.budget||0)+5})">Budget +5</button>
+        <button class="btn-ghost" onclick="setDeptBudget('${key}', Math.max(0,${(d.budget||0)-5}))">Budget -5</button>
+        <button class="btn-ghost" onclick="upgradeDepartment('${key}')">Upgrade</button>
+      </div>
+    </div>`;
+  };
+  return `<div class="card" style="margin-bottom:14px;padding:14px;border-color:var(--gold);">
+    <div style="color:var(--gold);font-family:var(--ds-font-display);font-size:1.15rem;margin-bottom:8px;">Clan Management</div>
+    <div class="grid-3" style="margin-bottom:12px;">
+      <div class="stat-box"><div class="label">Food ${typeof statusLight==='function'?statusLight(m.food):''}</div><div class="value">${m.food}</div></div>
+      <div class="stat-box"><div class="label">Morale ${typeof statusLight==='function'?statusLight(m.morale):''}</div><div class="value">${Math.round(m.morale)}</div></div>
+      <div class="stat-box"><div class="label">Security ${typeof statusLight==='function'?statusLight(m.security):''}</div><div class="value">${Math.round(m.security)}</div></div>
+      <div class="stat-box"><div class="label">Gold</div><div class="value">${(state.clanWealth&&state.clanWealth.gold)||0}</div></div>
+      <div class="stat-box"><div class="label">Living</div><div class="value">${getLineageCharacters().length}</div></div>
+      <div class="stat-box"><div class="label">Threat</div><div class="value">${state.globalThreat||1}</div></div>
+    </div>
+    ${typeof lastMonthReportCard==="function"?lastMonthReportCard():""}
+    ${typeof constructionProgressBars==="function"?constructionProgressBars():""}
+    ${typeof hourglassInfo==="function"?hourglassInfo():""}
+    <div style="margin:12px 0;">
+      <div style="color:var(--gold);font-weight:600;margin-bottom:6px;">Policies</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <select onchange="setPolicy('taxation', this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+          <option value="low" ${m.policies.taxation==='low'?'selected':''}>Tax: Low</option>
+          <option value="normal" ${m.policies.taxation==='normal'?'selected':''}>Tax: Normal</option>
+          <option value="high" ${m.policies.taxation==='high'?'selected':''}>Tax: High</option>
+        </select>
+        <select onchange="setPolicy('recruitment', this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+          <option value="closed" ${m.policies.recruitment==='closed'?'selected':''}>Recruit: Closed</option>
+          <option value="steady" ${m.policies.recruitment==='steady'?'selected':''}>Recruit: Steady</option>
+          <option value="aggressive" ${m.policies.recruitment==='aggressive'?'selected':''}>Recruit: Aggressive</option>
+        </select>
+        <select onchange="setPolicy('training', this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+          <option value="safe" ${m.policies.training==='safe'?'selected':''}>Train: Safe</option>
+          <option value="balanced" ${m.policies.training==='balanced'?'selected':''}>Train: Balanced</option>
+          <option value="harsh" ${m.policies.training==='harsh'?'selected':''}>Train: Harsh</option>
+        </select>
+        <select onchange="setPolicy('openness', this.value)" style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px;border-radius:8px;">
+          <option value="isolation" ${m.policies.openness==='isolation'?'selected':''}>Stance: Isolation</option>
+          <option value="neutral" ${m.policies.openness==='neutral'?'selected':''}>Stance: Neutral</option>
+          <option value="expansion" ${m.policies.openness==='expansion'?'selected':''}>Stance: Expansion</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin:12px 0;">
+      <div style="color:var(--gold);font-weight:600;margin-bottom:6px;">Departments</div>
+      ${depRow("military","Military")}
+      ${depRow("alchemy","Alchemy")}
+      ${depRow("diplomacy","Diplomacy")}
+      ${depRow("economy","Economy")}
+      ${depRow("intelligence","Intelligence")}
+    </div>
+    <div style="margin:12px 0;">
+      <div style="color:var(--gold);font-weight:600;margin-bottom:6px;">Monthly Orders (max 3) · Queued: ${(m.monthlyOrders||[]).join(", ")||"none"}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="btn-ghost" onclick="queueMonthlyOrder('stockpile_food')">Stockpile Food</button>
+        <button class="btn-ghost" onclick="queueMonthlyOrder('patrol')">Patrol</button>
+        <button class="btn-ghost" onclick="queueMonthlyOrder('festival')">Festival</button>
+        <button class="btn-ghost" onclick="queueMonthlyOrder('closed_door')">Closed-Door Training</button>
+        <button class="btn-ghost" onclick="queueMonthlyOrder('expand_trade')">Expand Trade</button>
+        <button class="btn-ghost" onclick="clearMonthlyOrders()">Clear Orders</button>
+        <button class="btn-ghost" onclick="toggleAutoManage()">Auto-manage: ${m.autoManage?"ON":"OFF"}</button>
+        <button class="btn-ghost" onclick="upgradeWarehouse()">Upgrade Warehouse</button>
+        <button class="btn-ghost" onclick="assignDeptHead('military')">Head: Military</button>
+        <button class="btn-ghost" onclick="assignDeptHead('alchemy')">Head: Alchemy</button>
+        <button class="btn-ghost" onclick="assignDeptHead('diplomacy')">Head: Diplomacy</button>
+        <button class="btn-ghost" onclick="assignDeptHead('economy')">Head: Economy</button>
+        <button class="btn-ghost" onclick="assignDeptHead('intelligence')">Head: Intel</button>
+        <button class="btn-ghost" onclick="spyMission()">Spy Mission</button>
+        <button class="btn-ghost" onclick="toggleWarFooting()">War Footing</button>
+        <button class="btn-ghost" onclick="setBorder('Peace')">Border: Peace</button>
+        <button class="btn-ghost" onclick="setBorder('Tension')">Border: Tension</button>
+        <button class="btn-ghost" onclick="setBorder('War')">Border: War</button>
+        <button class="btn-ghost" onclick="setLaw('No Outer may hold Elder seat')">Law: No Outer Elders</button>
+        <button class="btn-ghost" onclick="clearLaws()">Clear Laws</button>
+        <button class="btn-ghost" onclick="endYearLedger()">Year Ledger</button>
+        <button class="btn-ghost" onclick="managementScore()">Management Score</button>
+        <button class="btn-ghost" onclick="toggleMgmtOnly()">Mgmt-only UI</button>
+        <button class="btn-primary" onclick="applyPreset('Peacetime')">Preset: Peacetime</button>
+        <button class="btn-primary" onclick="applyPreset('War Economy')">Preset: War Economy</button>
+        <button class="btn-primary" onclick="applyPreset('Crisis')">Preset: Crisis</button>
+        <button class="btn-ghost" onclick="advisorSummary()">Advisor Summary</button>
+        <button class="btn-ghost" onclick="whyGoldFalling()">Why is gold falling?</button>
+        <button class="btn-ghost" onclick="startConstruction('warehouse')">Build Warehouse (3m)</button>
+        <button class="btn-ghost" onclick="startConstruction('training_ground')">Build Training Ground (4m)</button>
+        <button class="btn-ghost" onclick="startConstruction('guard_post')">Build Guard Post (3m)</button>
+        <button class="btn-ghost" onclick="startConstruction('legacy_monument')">Legacy Monument (6m)</button>
+        <button class="btn-ghost" onclick="unlockTradeRoute('silk')">Route: Silk</button>
+        <button class="btn-ghost" onclick="unlockTradeRoute('herb')">Route: Herb</button>
+        <button class="btn-ghost" onclick="unlockTradeRoute('ore')">Route: Ore</button>
+        <button class="btn-ghost" onclick="withdrawReserve(20)">Withdraw Reserve 20</button>
+        <button class="btn-ghost" onclick="demandTribute()">Demand Tribute</button>
+        <button class="btn-ghost" onclick="peaceTreatyEvent()">Offer Peace Treaty</button>
+        <button class="btn-ghost" onclick="toggleHardMode()">Hard Mode</button>
+        <button class="btn-ghost" onclick="exportManagementJSON()">Export Mgmt JSON</button>
+        <button class="btn-primary" onclick="cabinetMeeting()">Cabinet Meeting</button>
+        <button class="btn-ghost" onclick="ancestorVetoTax()">Ancestor Veto High Tax</button>
+        <button class="btn-ghost" onclick="setLawWarRequiresCouncil()">Law: War needs Council</button>
+        <button class="btn-ghost" onclick="stabilizeEconomy()">Stabilize Economy</button>
+        <button class="btn-ghost" onclick="togglePauseOnRed()">Pause on Red: ${(state.simInt&&state.simInt.pauseOnRed!==false)?"ON":"OFF"}</button>
+        <button class="btn-ghost" onclick="filterDeptHeadsOnly()">Dept Heads Only</button>
+        <button class="btn-ghost" onclick="undoLastPolicy()">Undo Policy</button>
+        <button class="btn-ghost" onclick="autoAssignBestHeads()">Auto-Assign Heads</button>
+        <button class="btn-ghost" onclick="fireDeptHead('military')">Fire Mil Head</button>
+        <button class="btn-ghost" onclick="authorizeWarAgenda()">Council: Authorize War</button>
+        <button class="btn-ghost" onclick="stopScoreboard()">Scoreboard</button>
+        <button class="btn-ghost" onclick="bugcheckSanity()">Bugcheck</button>
+        <button class="btn-ghost" onclick="loadScenario('dying')">Scenario: Dying</button>
+        <button class="btn-ghost" onclick="loadScenario('merchant')">Scenario: Merchant</button>
+        <button class="btn-ghost" onclick="loadScenario('frontier')">Scenario: Frontier</button>
+        <button class="btn-ghost" onclick="safeDefaultsNewDynasty()">Safe Defaults</button>
+      </div>
+      <p style="color:var(--text-dim);font-size:0.8rem;margin-top:8px;">Warehouse food ${m.warehouse?m.warehouse.food:0}/${m.warehouse?m.warehouse.capacity:0} · Border ${m.border||'Peace'} · WarFoot ${m.warFooting?'ON':'OFF'} · Laws ${(m.laws||[]).join(', ')||'none'} · Heads ${Object.keys(m.deptHeads||{}).map(k=>k+':'+(state.characters.find(x=>x.id===m.deptHeads[k])||{}).name).join(' | ')||'—'}</p>
+    </div>
+  </div>`;
+}
+
+
+
+// ===== FULL MGMT DEPTH 20 =====
+function ensureMgmtDepth() {
+  ensureManagement();
+  if (!state.mgmt.warehouse) state.mgmt.warehouse = { food: 0, herbs: 0, capacity: 100 };
+  if (!state.mgmt.deptHeads) state.mgmt.deptHeads = {}; // dept -> charId
+  if (!state.mgmt.laws) state.mgmt.laws = [];
+  if (!state.mgmt.warFooting) state.mgmt.warFooting = false;
+  if (!state.mgmt.border) state.mgmt.border = "Peace"; // Peace | Tension | War
+  if (!state.mgmt.budgetMode) state.mgmt.budgetMode = "flat"; // flat | percent
+  if (!state.mgmt.budgetPct) state.mgmt.budgetPct = { military: 10, alchemy: 10, diplomacy: 10, economy: 20, intelligence: 10 };
+  if (!state.mgmt.yearLedger) state.mgmt.yearLedger = [];
+  if (!state.mgmt.collapseMonths) state.mgmt.collapseMonths = 0;
+  if (!state.mgmt.goldenMonths) state.mgmt.goldenMonths = 0;
+  if (!state.mgmt.mgmtOnly) state.mgmt.mgmtOnly = false;
+  if (state.mgmt.alerts == null) state.mgmt.alerts = [];
+}
+
+function classFoodCost(char) {
+  const r = typeof currentRankId === "function" ? currentRankId(char) : "outer";
+  if (r === "outer") return 0.5;
+  if (r === "inner") return 0.75;
+  if (r === "core") return 1;
+  if (r === "elder" || r === "grand_elder") return 1.5;
+  return 2; // patriarch/ancestor
+}
+
+function classGoldStipend(char) {
+  const r = typeof currentRankId === "function" ? currentRankId(char) : "outer";
+  const map = { outer: 1, inner: 2, core: 3, elder: 5, grand_elder: 8, patriarch: 12, ancestor: 6 };
+  return map[r] || 1;
+}
+
+function warehouseStore(type, amount) {
+  ensureMgmtDepth();
+  const w = state.mgmt.warehouse;
+  const space = w.capacity - w.food - w.herbs;
+  const put = Math.max(0, Math.min(amount, space));
+  if (type === "food") w.food += put;
+  else w.herbs += put;
+  return put;
+}
+
+function warehouseWithdraw(type, amount) {
+  ensureMgmtDepth();
+  const w = state.mgmt.warehouse;
+  if (type === "food") {
+    const take = Math.min(amount, w.food);
+    w.food -= take;
+    return take;
+  }
+  const take = Math.min(amount, w.herbs);
+  w.herbs -= take;
+  return take;
+}
+
+function upgradeWarehouse() {
+  ensureMgmtDepth();
+  const cost = 40 + Math.floor(state.mgmt.warehouse.capacity / 2);
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  state.clanWealth.gold -= cost;
+  state.mgmt.warehouse.capacity += 50;
+  simLog("Warehouse capacity → " + state.mgmt.warehouse.capacity);
+  saveState();
+  showToast("Warehouse +" + 50);
+  switchView("simulation");
+}
+
+function assignDeptHead(dept) {
+  ensureMgmtDepth();
+  const char = getActiveChar();
+  if (!char) return showToast("Select a character first");
+  state.mgmt.deptHeads[dept] = char.id;
+  simLog(char.name + " appointed head of " + dept);
+  try { addMerit(char, 5, "department head"); } catch(e) {}
+  saveState();
+  showToast(dept + " head: " + char.name);
+  switchView("simulation");
+}
+
+function deptHeadBonus(dept) {
+  ensureMgmtDepth();
+  const id = state.mgmt.deptHeads[dept];
+  if (!id) return 0;
+  const c = state.characters.find(x => x.id === id && x.alive !== false);
+  if (!c) return 0;
+  const score = typeof cultivationScore === "function" ? cultivationScore(c) : 20;
+  return Math.min(5, Math.floor(score / 80));
+}
+
+function rollDisaster() {
+  ensureMgmtDepth();
+  if (Math.random() > 0.07) return null;
+  const table = [
+    { id: "drought", label: "Drought", food: -20, morale: -5 },
+    { id: "beast_tide", label: "Beast Tide", security: -15, threat: 1 },
+    { id: "plague", label: "Plague", morale: -10, injury: true },
+    { id: "flood", label: "Flood", food: -10, gold: -15 },
+    { id: "blizzard", label: "Blizzard", food: -8, security: -5 }
+  ];
+  return table[Math.floor(Math.random() * table.length)];
+}
+
+function applyDisaster(d) {
+  if (!d) return;
+  ensureMgmtDepth();
+  if (d.food) {
+    state.mgmt.food = Math.max(0, state.mgmt.food + d.food);
+    if (state.mgmt.food < 15) warehouseWithdraw("food", 15 - state.mgmt.food);
+  }
+  if (d.morale) state.mgmt.morale = Math.max(0, state.mgmt.morale + d.morale);
+  if (d.security) state.mgmt.security = Math.max(0, state.mgmt.security + d.security);
+  if (d.gold) state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) + d.gold);
+  if (d.threat) state.globalThreat = Math.min(10, (state.globalThreat || 1) + d.threat);
+  if (d.injury) {
+    getLineageCharacters().forEach(ch => {
+      if (Math.random() > 0.85) applyInjury(ch, 1);
+    });
+  }
+  // security/intel mitigate
+  const mit = state.mgmt.departments.military.level + deptHeadBonus("military") + state.mgmt.departments.intelligence.level;
+  if (mit >= 6 && Math.random() > 0.5) {
+    simLog("Disaster mitigated by Military/Intelligence: " + d.label);
+    state.mgmt.morale = Math.min(100, state.mgmt.morale + 3);
+  } else {
+    simLog("Disaster strikes: " + d.label);
+    pushAlert("Disaster: " + d.label);
+  }
+}
+
+function pushAlert(msg) {
+  ensureMgmtDepth();
+  state.mgmt.alerts.unshift({ t: Date.now(), msg: msg, y: state.sim.year, m: state.sim.month });
+  if (state.mgmt.alerts.length > 12) state.mgmt.alerts.pop();
+}
+
+function setLaw(law) {
+  ensureMgmtDepth();
+  if (state.mgmt.laws.length >= 3) state.mgmt.laws.shift();
+  if (!state.mgmt.laws.includes(law)) state.mgmt.laws.push(law);
+  simLog("Law enacted: " + law);
+  saveState();
+  showToast("Law: " + law);
+  switchView("simulation");
+}
+
+function clearLaws() {
+  ensureMgmtDepth();
+  state.mgmt.laws = [];
+  saveState();
+  switchView("simulation");
+}
+
+function enforceLawsOnPromote(char, next) {
+  ensureMgmtDepth();
+  if ((state.mgmt.laws || []).includes("No Outer may hold Elder seat") && currentRankId(char) === "outer" && (next === "elder" || next === "grand_elder")) {
+    return false;
+  }
+  return true;
+}
+
+function spyMission() {
+  ensureMgmtDepth();
+  const cost = 20;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  if (state.mgmt.departments.intelligence.level < 1) return showToast("Need Intelligence dept");
+  state.clanWealth.gold -= cost;
+  const bonus = deptHeadBonus("intelligence") + state.mgmt.departments.intelligence.level;
+  if (Math.random() * 10 < 4 + bonus) {
+    if (state.dynasty && state.dynasty.rival) {
+      state.dynasty.rival.power = Math.max(10, (state.dynasty.rival.power || 50) - randInt(5, 15));
+    }
+    state.globalThreat = Math.max(1, (state.globalThreat || 1) - 1);
+    simLog("Spy mission success.");
+    showToast("Intel success");
+  } else {
+    state.mgmt.security = Math.max(0, state.mgmt.security - 5);
+    simLog("Spy mission failed — exposure.");
+    showToast("Intel failed");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function toggleWarFooting() {
+  ensureMgmtDepth();
+  // only patriarch/regent
+  const actor = getActiveChar();
+  const ok = actor && (currentRankId(actor) === "patriarch" || actor.isRegent || currentRankId(actor) === "ancestor");
+  if (actor && !ok) return showToast("Only Patriarch/Regent/Ancestor may set war footing");
+  if (!state.mgmt.warFooting && !confirm("Confirm War Footing?")) return;
+  try { pushPolicyHistory(snapshotPolicies()); } catch(e) {}
+  state.mgmt.warFooting = !state.mgmt.warFooting;
+  if (state.mgmt.warFooting) {
+    state.mgmt.border = "Tension";
+    simLog("Clan moves to war footing.");
+  } else {
+    simLog("War footing lifted.");
+  }
+  saveState();
+  showToast("War footing: " + (state.mgmt.warFooting ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function setBorder(status) {
+  ensureMgmtDepth();
+  if (status === "War" && typeof warRequiresCouncilGate === "function" && !warRequiresCouncilGate()) {
+    return showToast("Law: War requires open council");
+  }
+  state.mgmt.border = status;
+  saveState();
+  showToast("Border: " + status);
+  switchView("simulation");
+}
+
+function factionPressureTick() {
+  ensureMgmtDepth();
+  const deps = state.mgmt.departments;
+  const totalBudget = Object.values(deps).reduce((s, d) => s + (d.budget || 0), 0) || 1;
+  ["military", "alchemy", "diplomacy"].forEach(k => {
+    const share = (deps[k].budget || 0) / totalBudget;
+    if (share < 0.1 && Math.random() > 0.85) {
+      pushAlert(k + " faction demands more budget");
+      state.mgmt.morale = Math.max(0, state.mgmt.morale - 2);
+    }
+  });
+}
+
+function policyRequiresCouncil(key, val) {
+  if ((key === "taxation" && val === "high") || (key === "recruitment" && val === "aggressive")) {
+    if (!(state.council && state.council.discussionOpen) && Math.random() > 0.3) {
+      // soft gate: allow but note
+      pushAlert("High tax/Aggressive recruit should be council-approved");
+    }
+  }
+}
+
+function endYearLedger() {
+  ensureMgmtDepth();
+  const living = getLineageCharacters();
+  let stipend = 0;
+  living.forEach(ch => { stipend += classGoldStipend(ch); });
+  const entry = {
+    year: state.sim.year,
+    gold: (state.clanWealth && state.clanWealth.gold) || 0,
+    food: state.mgmt.food,
+    warehouseFood: state.mgmt.warehouse.food,
+    morale: state.mgmt.morale,
+    security: state.mgmt.security,
+    living: living.length,
+    stipend: stipend,
+    border: state.mgmt.border,
+    warFooting: state.mgmt.warFooting
+  };
+  state.mgmt.yearLedger.push(entry);
+  if (state.mgmt.yearLedger.length > 40) state.mgmt.yearLedger.shift();
+  const lines = state.mgmt.yearLedger.slice(-5).map(e =>
+    "Y" + e.year + " gold " + e.gold + " food " + e.food + " morale " + Math.round(e.morale) + " sec " + Math.round(e.security) + " pop " + e.living
+  );
+  alert("End-of-year ledger (recent):\n" + lines.join("\n"));
+}
+
+function managementScore() {
+  ensureMgmtDepth();
+  const m = state.mgmt;
+  const score = Math.round(
+    (m.food || 0) + (m.morale || 0) + (m.security || 0) +
+    ((state.clanWealth && state.clanWealth.gold) || 0) * 0.1 +
+    Object.values(m.departments).reduce((s, d) => s + d.level * 10, 0) +
+    (m.warehouse.capacity || 0) * 0.2
+  );
+  alert("Management Score: " + score);
+  return score;
+}
+
+function collapseAndGoldenTick() {
+  ensureMgmtDepth();
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const morale = state.mgmt.morale || 0;
+  if (gold <= 0 && morale < 20) {
+    state.mgmt.collapseMonths = (state.mgmt.collapseMonths || 0) + 1;
+    pushAlert("Bankruptcy stress " + state.mgmt.collapseMonths + "/6");
+    if (state.mgmt.collapseMonths >= 6) {
+      state.sim.running = false;
+      if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+      state.storyChapters.push({ title: "Collapse Y" + state.sim.year, content: "The clan administration collapses under debt and despair." });
+      showToast("MANAGEMENT COLLAPSE");
+      try { defeatCard("administrative collapse"); } catch(e) {}
+      state.mgmt.collapseMonths = 0;
+    }
+  } else {
+    state.mgmt.collapseMonths = 0;
+  }
+  if (state.mgmt.food >= 80 && state.mgmt.morale >= 80 && state.mgmt.security >= 80) {
+    state.mgmt.goldenMonths = (state.mgmt.goldenMonths || 0) + 1;
+    if (state.mgmt.goldenMonths >= 12) {
+      state.clanWealth.renown = (state.clanWealth.renown || 1) + 3;
+      state.storyChapters.push({ title: "Golden Age Y" + state.sim.year, content: "A full year of abundance, order, and high morale." });
+      showToast("GOLDEN AGE");
+      state.mgmt.goldenMonths = 0;
+    }
+  } else {
+    state.mgmt.goldenMonths = 0;
+  }
+}
+
+function toggleMgmtOnly() {
+  ensureMgmtDepth();
+  state.mgmt.mgmtOnly = !state.mgmt.mgmtOnly;
+  saveState();
+  showToast("Management-only UI: " + (state.mgmt.mgmtOnly ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function renderAlertsStrip() {
+  ensureMgmtDepth();
+  // live alerts
+  const living = getLineageCharacters().length;
+  const pat = living && getLineageCharacters().some(c => currentRankId(c) === "patriarch");
+  if ((state.mgmt.food || 0) < 20) pushAlertDeduped("Food low");
+  if (!pat && living > 0) pushAlertDeduped("No Patriarch");
+  const alerts = (state.mgmt.alerts || []).slice(0, 5);
+  if (!alerts.length) return "";
+  return `<div style="margin-bottom:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(180,40,40,0.08);">
+    <strong style="color:var(--gold);">Alerts</strong>
+    <div style="font-size:0.82rem;color:var(--text-muted);margin-top:4px;">${alerts.map(a => "Y"+a.y+"M"+a.m+" — "+a.msg).join(" · ")}</div>
+  </div>`;
+}
+
+
+
+// ===== MGMT POLISH 20 =====
+function ensureMgmtPolish() {
+  ensureMgmtDepth && ensureMgmtDepth();
+  ensureManagement();
+  if (!state.mgmt.presets) {
+    state.mgmt.presets = {
+      Peacetime: { taxation: "normal", recruitment: "steady", training: "safe", openness: "neutral", warFooting: false, border: "Peace",
+        budgets: { military: 5, alchemy: 8, diplomacy: 8, economy: 15, intelligence: 5 } },
+      "War Economy": { taxation: "high", recruitment: "aggressive", training: "harsh", openness: "expansion", warFooting: true, border: "Tension",
+        budgets: { military: 25, alchemy: 5, diplomacy: 5, economy: 10, intelligence: 15 } },
+      Crisis: { taxation: "low", recruitment: "closed", training: "safe", openness: "isolation", warFooting: false, border: "Peace",
+        budgets: { military: 10, alchemy: 10, diplomacy: 5, economy: 20, intelligence: 10 } }
+    };
+  }
+  if (!state.mgmt.construction) state.mgmt.construction = []; // {type, monthsLeft}
+  if (!state.mgmt.tradeRoutes) state.mgmt.tradeRoutes = { silk: false, herb: false, ore: false };
+  if (!state.mgmt.reserveFund) state.mgmt.reserveFund = 0;
+  if (!state.mgmt.reserveRate) state.mgmt.reserveRate = 0.1;
+  if (!state.mgmt.hardMode) state.mgmt.hardMode = false;
+  if (!state.mgmt.alertSeen) state.mgmt.alertSeen = {};
+  if (!state.mgmt.legacyBuildings) state.mgmt.legacyBuildings = [];
+}
+
+function applyPreset(name) {
+  ensureMgmtPolish();
+  if (name === "War Economy" && canApplyWarEconomyPreset && !canApplyWarEconomyPreset()) return;
+  const p = state.mgmt.presets[name];
+  if (!p) return showToast("Unknown preset");
+  state.mgmt.policies.taxation = p.taxation;
+  state.mgmt.policies.recruitment = p.recruitment;
+  state.mgmt.policies.training = p.training;
+  state.mgmt.policies.openness = p.openness;
+  state.mgmt.warFooting = p.warFooting;
+  state.mgmt.border = p.border;
+  Object.keys(p.budgets || {}).forEach(k => {
+    if (state.mgmt.departments[k]) state.mgmt.departments[k].budget = p.budgets[k];
+  });
+  simLog("Preset applied: " + name);
+  saveState();
+  showToast("Preset: " + name);
+  switchView("simulation");
+}
+
+function advisorSummary() {
+  ensureMgmtPolish();
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const food = state.mgmt.food || 0;
+  const morale = state.mgmt.morale || 0;
+  const sec = state.mgmt.security || 0;
+  const lines = [];
+  lines.push("Money: gold " + gold + (gold < 30 ? " (tight)" : gold > 200 ? " (strong)" : " (stable)"));
+  let risk = "low";
+  if (food < 25 || morale < 30 || sec < 30 || (state.globalThreat || 1) >= 7) risk = "high";
+  else if (food < 50 || morale < 50 || sec < 50) risk = "medium";
+  lines.push("Risk: " + risk + " (food " + food + ", morale " + Math.round(morale) + ", security " + Math.round(sec) + ")");
+  let rec = "Maintain course";
+  if (gold < 30) rec = "Queue Expand Trade / lower budgets";
+  else if (food < 25) rec = "Stockpile Food + upgrade warehouse";
+  else if (sec < 30) rec = "Raise Military budget or Patrol";
+  else if (morale < 30) rec = "Festival + lower tax";
+  else if ((state.globalThreat || 1) >= 7) rec = "War Footing or Ancestor Last Defense";
+  else if (getLineageCharacters().length < 10) rec = "Steady/Aggressive recruit";
+  lines.push("Advice: " + rec);
+  alert("Advisor Summary\n1. " + lines[0] + "\n2. " + lines[1] + "\n3. " + lines[2]);
+}
+
+function startConstruction(type) {
+  ensureMgmtPolish();
+  const costs = { warehouse: 40, training_ground: 45, guard_post: 40, legacy_monument: 80 };
+  const months = { warehouse: 3, training_ground: 4, guard_post: 3, legacy_monument: 6 };
+  const cost = costs[type];
+  if (cost == null) return;
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  if (state.mgmt.construction.length >= 2) return showToast("Max 2 constructions");
+  state.clanWealth.gold -= cost;
+  state.mgmt.construction.push({ type: type, monthsLeft: months[type] });
+  simLog("Construction started: " + type + " (" + months[type] + " months)");
+  saveState();
+  showToast("Building " + type);
+  switchView("simulation");
+}
+
+function tickConstruction() {
+  ensureMgmtPolish();
+  if (typeof constructionFrozen === "function" && constructionFrozen()) return;
+  const next = [];
+  (state.mgmt.construction || []).forEach(job => {
+    job.monthsLeft -= 1;
+    if (job.monthsLeft <= 0) {
+      if (job.type === "warehouse") {
+        state.mgmt.warehouse.capacity += 50;
+        simLog("Construction complete: warehouse capacity " + state.mgmt.warehouse.capacity);
+      } else if (job.type === "training_ground") {
+        try { ensureDynasty(); state.dynasty.buildings.trainingGround = (state.dynasty.buildings.trainingGround || 0) + 1; } catch(e) {}
+        simLog("Construction complete: training ground");
+      } else if (job.type === "guard_post") {
+        try { ensureDynasty(); state.dynasty.buildings.guardPost = (state.dynasty.buildings.guardPost || 0) + 1; } catch(e) {}
+        state.mgmt.security = Math.min(100, state.mgmt.security + 5);
+        simLog("Construction complete: guard post");
+      } else if (job.type === "legacy_monument") {
+        state.mgmt.legacyBuildings.push({ name: "Legacy Monument", year: state.sim.year });
+        state.clanWealth.renown = (state.clanWealth.renown || 1) + 4;
+        simLog("Legacy monument completed — survives Patriarch changes.");
+      }
+    } else next.push(job);
+  });
+  state.mgmt.construction = next;
+}
+
+function unlockTradeRoute(route) {
+  ensureMgmtPolish();
+  const costs = { silk: 50, herb: 40, ore: 60 };
+  if (state.mgmt.tradeRoutes[route]) return showToast("Already unlocked");
+  const cost = costs[route];
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  state.clanWealth.gold -= cost;
+  state.mgmt.tradeRoutes[route] = true;
+  simLog("Trade route unlocked: " + route);
+  saveState();
+  showToast("Route: " + route);
+  switchView("simulation");
+}
+
+function tradeRouteIncome() {
+  ensureMgmtPolish();
+  ensureSimIntegration();
+  if (tradeBlockedBySecurity()) {
+    if (Math.random() > 0.9) simLog("Trade blocked by low security.");
+    return 0;
+  }
+  let g = 0;
+  const lv = (r) => (state.simInt.tradeRouteLevel && state.simInt.tradeRouteLevel[r]) || 1;
+  if (state.mgmt.tradeRoutes.silk) g += randInt(3, 10) * lv("silk");
+  if (state.mgmt.tradeRoutes.herb) { g += randInt(2, 6) * lv("herb"); state.clanWealth.herbs = (state.clanWealth.herbs || 0) + lv("herb"); }
+  if (state.mgmt.tradeRoutes.ore) g += randInt(4, 12) * lv("ore");
+  if (g && state.mgmt.border === "War" && Math.random() > 0.7) {
+    g = Math.floor(g * 0.3);
+    simLog("Trade disrupted by war.");
+  }
+  return g;
+}
+
+function applyReserveFund(income) {
+  ensureMgmtPolish();
+  if (income <= 0) return 0;
+  const put = Math.floor(income * (state.mgmt.reserveRate || 0.1));
+  state.mgmt.reserveFund = (state.mgmt.reserveFund || 0) + put;
+  return put;
+}
+
+function withdrawReserve(amount) {
+  ensureMgmtPolish();
+  amount = Math.min(amount, state.mgmt.reserveFund || 0);
+  state.mgmt.reserveFund -= amount;
+  state.clanWealth.gold = (state.clanWealth.gold || 0) + amount;
+  simLog("Withdrew " + amount + " from reserve fund");
+  saveState();
+  showToast("Reserve -" + amount);
+  switchView("simulation");
+}
+
+function headVacancyPenalty() {
+  ensureMgmtPolish();
+  ["military", "alchemy", "diplomacy", "economy", "intelligence"].forEach(dept => {
+    const id = state.mgmt.deptHeads[dept];
+    if (!id) return;
+    const c = state.characters.find(x => x.id === id);
+    if (!c || c.alive === false) {
+      state.mgmt.deptHeads[dept] = null;
+      state.mgmt.departments[dept].budget = Math.max(0, (state.mgmt.departments[dept].budget || 0) - 3);
+      pushAlert(dept + " head vacant — efficiency down");
+      simLog(dept + " department head position vacant.");
+    }
+  });
+}
+
+function corruptHeadEvent() {
+  ensureMgmtPolish();
+  if (Math.random() > 0.05) return;
+  const entries = Object.keys(state.mgmt.deptHeads || {}).filter(k => state.mgmt.deptHeads[k]);
+  if (!entries.length) return;
+  const dept = entries[Math.floor(Math.random() * entries.length)];
+  const head = state.characters.find(c => c.id === state.mgmt.deptHeads[dept]);
+  if (!head) return;
+  state.sim.pendingChoice = {
+    event: "Corrupt head: " + head.name + " (" + dept + ") is siphoning budget.",
+    options: [
+      { label: "Punish (remove head, -loyalty)", effect: "corr_punish_" + dept },
+      { label: "Ignore (lose gold)", effect: "corr_ignore" },
+      { label: "Quietly fine (-15g, keep head)", effect: "corr_fine" }
+    ]
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+}
+
+function resolveCorruptEffect(effect) {
+  if (effect.indexOf("corr_punish_") === 0) {
+    const dept = effect.replace("corr_punish_", "");
+    const id = state.mgmt.deptHeads[dept];
+    const head = state.characters.find(c => c.id === id);
+    if (head) { addLoyalty(head, -15); state.mgmt.deptHeads[dept] = null; }
+    simLog("Corrupt head punished.");
+  } else if (effect === "corr_ignore") {
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 25);
+    simLog("Corruption ignored — gold missing.");
+  } else if (effect === "corr_fine") {
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 15);
+    simLog("Head fined quietly.");
+  }
+  state.sim.pendingChoice = null;
+  saveState();
+  switchView("simulation");
+}
+
+function statusLight(val) {
+  if (val >= 70) return "🟢";
+  if (val >= 40) return "🟡";
+  return "🔴";
+}
+
+function whyGoldFalling() {
+  ensureMgmtPolish();
+  const living = getLineageCharacters();
+  let stipend = 0;
+  living.forEach(ch => { stipend += classGoldStipend(ch) * 0.15; });
+  const budgets = Object.values(state.mgmt.departments).reduce((s, d) => s + (d.budget || 0), 0);
+  const war = state.mgmt.warFooting ? "War footing +50% upkeep" : "No war footing";
+  const border = "Border " + (state.mgmt.border || "Peace");
+  const reserve = "Reserve fund " + (state.mgmt.reserveFund || 0) + " (rate " + Math.round((state.mgmt.reserveRate || 0.1) * 100) + "%)";
+  alert("Why gold moves:\n• Population stipends ~" + Math.round(stipend) + "/month\n• Department budgets " + budgets + "\n• " + war + "\n• " + border + "\n• " + reserve + "\n• Orders/disasters/spy also spend\n• Economy dept + trade routes add income");
+}
+
+function demandTribute() {
+  ensureMgmtPolish();
+  if (state.mgmt.border !== "Tension" && state.mgmt.border !== "War") return showToast("Need Tension or War border");
+  const gain = randInt(15, 40);
+  if (Math.random() > 0.4) {
+    state.clanWealth.gold += gain;
+    if (state.dynasty && state.dynasty.rival) state.dynasty.rival.hostility = (state.dynasty.rival.hostility || 0) + 1;
+    simLog("Tribute extracted +" + gain);
+    showToast("Tribute +" + gain);
+  } else {
+    state.mgmt.border = "War";
+    state.globalThreat = Math.min(10, (state.globalThreat || 1) + 1);
+    simLog("Tribute demand rejected — border turns to War");
+    showToast("Demand failed → War");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function peaceTreatyEvent() {
+  ensureMgmtPolish();
+  if (state.mgmt.border !== "War") return showToast("Not at war");
+  state.sim.pendingChoice = {
+    event: "Peace treaty offered after long conflict.",
+    options: [
+      { label: "Accept peace (border Peace)", effect: "peace_yes" },
+      { label: "Demand gold then peace", effect: "peace_gold" },
+      { label: "Refuse", effect: "peace_no" }
+    ]
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+}
+
+function resolvePeaceEffect(effect) {
+  if (effect === "peace_yes") {
+    state.mgmt.border = "Peace";
+    state.mgmt.warFooting = false;
+    simLog("Peace treaty signed.");
+  } else if (effect === "peace_gold") {
+    state.clanWealth.gold += 30;
+    state.mgmt.border = "Peace";
+    state.mgmt.warFooting = false;
+    simLog("Peace for gold.");
+  } else simLog("Peace refused — war continues.");
+  state.sim.pendingChoice = null;
+  saveState();
+  switchView("simulation");
+}
+
+function pushAlertDeduped(msg) {
+  ensureMgmtPolish();
+  const key = msg + "_" + (state.sim.year || 0);
+  if (state.mgmt.alertSeen[key]) return;
+  state.mgmt.alertSeen[key] = true;
+  // prune old keys
+  const keys = Object.keys(state.mgmt.alertSeen);
+  if (keys.length > 80) keys.slice(0, 40).forEach(k => delete state.mgmt.alertSeen[k]);
+  pushAlert(msg);
+}
+
+function censusEveryDecade() {
+  if ((state.sim.year || 1) % 10 !== 0 || state.sim.month !== 1) return;
+  const counts = {};
+  getLineageCharacters().forEach(c => {
+    const r = currentRankId(c);
+    counts[r] = (counts[r] || 0) + 1;
+  });
+  const text = "Census Y" + state.sim.year + ": " + Object.keys(counts).map(k => k + " " + counts[k]).join(", ");
+  state.storyChapters.push({ title: "Dynasty Census Y" + state.sim.year, content: text });
+  simLog(text);
+}
+
+function exportManagementJSON() {
+  ensureMgmtPolish();
+  const data = {
+    policies: state.mgmt.policies,
+    departments: state.mgmt.departments,
+    deptHeads: state.mgmt.deptHeads,
+    warehouse: state.mgmt.warehouse,
+    tradeRoutes: state.mgmt.tradeRoutes,
+    laws: state.mgmt.laws,
+    border: state.mgmt.border,
+    warFooting: state.mgmt.warFooting,
+    reserveFund: state.mgmt.reserveFund
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "clan-management.json";
+  a.click();
+  showToast("Management JSON exported");
+}
+
+function toggleHardMode() {
+  ensureMgmtPolish();
+  state.mgmt.hardMode = !state.mgmt.hardMode;
+  saveState();
+  showToast("Hard mode: " + (state.mgmt.hardMode ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+
+
+// ===== SIM INTEGRATION PACK 20 =====
+function ensureSimIntegration() {
+  ensureMgmtPolish && ensureMgmtPolish();
+  ensureManagement();
+  if (!state.simInt) {
+    state.simInt = {
+      priceShockUntil: 0,
+      tradeRouteXp: { silk: 0, herb: 0, ore: 0 },
+      tradeRouteLevel: { silk: 1, herb: 1, ore: 1 },
+      goldenAgeYears: 0,
+      pauseOnRed: true,
+      debtInterest: 0,
+      lastDefeat: null
+    };
+  }
+}
+
+function warFootingDeptMod(dept) {
+  ensureManagement();
+  if (!state.mgmt.warFooting) return 1;
+  if (dept === "military") return 1.35;
+  if (dept === "alchemy") return 0.7;
+  if (dept === "intelligence") return 1.15;
+  return 0.9;
+}
+
+function tradeBlockedBySecurity() {
+  ensureManagement();
+  return (state.mgmt.security || 0) < 30;
+}
+
+function moraleMeritMult() {
+  ensureManagement();
+  const m = state.mgmt.morale || 50;
+  if (m >= 80) return 1.25;
+  if (m >= 60) return 1.1;
+  if (m < 30) return 0.6;
+  if (m < 45) return 0.8;
+  return 1;
+}
+
+function constructionFrozen() {
+  return !!(state.council && state.council.discussionOpen);
+}
+
+function cabinetMeeting() {
+  ensureSimIntegration();
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  const food = state.mgmt.food || 0;
+  const tips = [];
+  if (gold < 40) tips.push({ label: "Apply Crisis preset", effect: "cab_crisis" });
+  else tips.push({ label: "Apply Peacetime preset", effect: "cab_peace" });
+  if (food < 40) tips.push({ label: "Queue stockpile food", effect: "cab_food" });
+  if ((state.globalThreat || 1) >= 6) tips.push({ label: "War Economy + footing", effect: "cab_war" });
+  tips.push({ label: "Dismiss", effect: "cab_dismiss" });
+  while (tips.length > 3) tips.pop();
+  state.sim.pendingChoice = {
+    event: "Annual Cabinet Meeting — advisors present options.",
+    options: tips
+  };
+  state.sim.running = false;
+  if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+  showToast("Cabinet meeting");
+  switchView("simulation");
+}
+
+function resolveCabinetEffect(effect) {
+  if (effect === "cab_crisis") applyPreset("Crisis");
+  else if (effect === "cab_peace") applyPreset("Peacetime");
+  else if (effect === "cab_food") queueMonthlyOrder("stockpile_food");
+  else if (effect === "cab_war") {
+    applyPreset("War Economy");
+    state.mgmt.warFooting = true;
+  }
+  state.sim.pendingChoice = null;
+  saveState();
+  switchView("simulation");
+}
+
+function ancestorVetoTax() {
+  ensureSimIntegration();
+  const anc = getLineageCharacters().find(c => currentRankId(c) === "ancestor");
+  if (!anc) return showToast("No Ancestor");
+  if (state.mgmt.policies.taxation !== "high") return showToast("Tax is not High");
+  const key = "veto_" + Math.floor((state.sim.year || 1) / 10);
+  if (state.simInt["vetoUsed_" + key]) return showToast("Veto already used this decade");
+  state.mgmt.policies.taxation = "normal";
+  state.simInt["vetoUsed_" + key] = true;
+  simLog(anc.name + " vetoes High Tax — rate returns to Normal.");
+  saveState();
+  showToast("Ancestor vetoes High Tax");
+  switchView("simulation");
+}
+
+function canApplyWarEconomyPreset() {
+  const actor = getActiveChar();
+  if (!actor) return true;
+  if (actor.isRegent) {
+    const geSupport = getLineageCharacters().filter(c => currentRankId(c) === "grand_elder").length;
+    if (geSupport < 1) {
+      showToast("Regent needs at least 1 Grand Elder to apply War Economy");
+      return false;
+    }
+  }
+  return true;
+}
+
+function setLawWarRequiresCouncil() {
+  setLaw("War requires council");
+}
+
+function warRequiresCouncilGate() {
+  ensureMgmtDepth && ensureMgmtDepth();
+  if ((state.mgmt.laws || []).includes("War requires council")) {
+    if (!(state.council && (state.council.discussionOpen || state.council.warAuthorized))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function priceShockTick() {
+  ensureSimIntegration();
+  if ((state.sim.year || 0) * 12 + (state.sim.month || 0) < (state.simInt.priceShockUntil || 0)) {
+    // active shock: food more expensive / drain
+    state.mgmt.food = Math.max(0, state.mgmt.food - 1);
+    state.clanWealth.gold = Math.max(0, (state.clanWealth.gold || 0) - 1);
+  } else if (Math.random() > 0.97) {
+    state.simInt.priceShockUntil = (state.sim.year || 1) * 12 + (state.sim.month || 1) + 3;
+    simLog("Price shock — food and goods costly for 3 months.");
+    pushAlertDeduped && pushAlertDeduped("Price shock");
+  }
+}
+
+function debtInterestTick() {
+  ensureSimIntegration();
+  const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+  if (gold <= 0) {
+    state.simInt.debtInterest = (state.simInt.debtInterest || 0) + 3;
+    pushAlertDeduped && pushAlertDeduped("Debt interest accruing: " + state.simInt.debtInterest);
+  } else if (state.simInt.debtInterest > 0) {
+    const pay = Math.min(gold, state.simInt.debtInterest);
+    state.clanWealth.gold -= pay;
+    state.simInt.debtInterest -= pay;
+  }
+}
+
+function tradeRouteLevelTick() {
+  ensureSimIntegration();
+  if (tradeBlockedBySecurity()) return;
+  ["silk", "herb", "ore"].forEach(r => {
+    if (!state.mgmt.tradeRoutes[r]) return;
+    state.simInt.tradeRouteXp[r] = (state.simInt.tradeRouteXp[r] || 0) + 1;
+    if (state.simInt.tradeRouteXp[r] >= 12 * (state.simInt.tradeRouteLevel[r] || 1)) {
+      state.simInt.tradeRouteLevel[r] = (state.simInt.tradeRouteLevel[r] || 1) + 1;
+      state.simInt.tradeRouteXp[r] = 0;
+      simLog("Trade route leveled: " + r + " → Lv." + state.simInt.tradeRouteLevel[r]);
+    }
+  });
+}
+
+function lastMonthReportCard() {
+  ensureManagement();
+  const r = state.mgmt.lastMonthReport;
+  if (!r) return `<div class="card" style="margin-bottom:10px;padding:10px;"><span style="color:var(--text-dim);">No month report yet — run the sim.</span></div>`;
+  return `<div class="card" style="margin-bottom:10px;padding:10px;">
+    <strong style="color:var(--gold);">Last Month Y${r.year}M${r.month}</strong>
+    <div style="font-size:0.85rem;color:var(--text-muted);margin-top:4px;">
+      Gold Δ <span style="color:${r.goldDelta>=0?'#6bcf8e':'var(--red-glow)'}">${r.goldDelta}</span>
+      · Income ${r.income} · Upkeep ${r.upkeep}
+      · Food ${r.food} · Morale ${Math.round(r.morale)} · Security ${Math.round(r.security)} · Routes ${(state.mgmt&&state.mgmt.tradeRoutes)?Object.keys(state.mgmt.tradeRoutes).filter(k=>state.mgmt.tradeRoutes[k]).join(',')||'none':'none'}
+    </div>
+  </div>`;
+}
+
+function constructionProgressBars() {
+  ensureMgmtPolish && ensureMgmtPolish();
+  const jobs = (state.mgmt && state.mgmt.construction) || [];
+  if (!jobs.length) return "";
+  return `<div style="margin:8px 0;">${jobs.map(j => {
+    const total = j.type === "legacy_monument" ? 6 : j.type === "training_ground" ? 4 : 3;
+    const done = total - j.monthsLeft;
+    const pct = Math.max(0, Math.min(100, Math.round(done / total * 100)));
+    return `<div style="margin-bottom:6px;font-size:0.8rem;color:var(--text-muted);">${j.type} (${j.monthsLeft}m left)
+      <div style="height:6px;background:#222;border-radius:4px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:var(--gold);"></div></div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function hourglassInfo() {
+  const y = state.sim.year || 1;
+  const m = state.sim.month || 1;
+  const nextCensus = 10 - (y % 10 || 10);
+  return `<p style="color:var(--text-dim);font-size:0.78rem;">Hourglass: ~${nextCensus}y to census · Price shock ${state.simInt && state.simInt.priceShockUntil ? "active" : "idle"} · Golden years ${state.simInt ? state.simInt.goldenAgeYears : 0}/50</p>`;
+}
+
+function togglePauseOnRed() {
+  ensureSimIntegration();
+  state.simInt.pauseOnRed = !state.simInt.pauseOnRed;
+  saveState();
+  showToast("Pause on red: " + (state.simInt.pauseOnRed ? "ON" : "OFF"));
+  switchView("simulation");
+}
+
+function pauseIfRed() {
+  ensureSimIntegration();
+  if (!state.simInt.pauseOnRed) return;
+  if ((state.mgmt.food || 0) < 40 || (state.mgmt.security || 0) < 40) {
+    if (state.sim.running) {
+      state.sim.running = false;
+      if (typeof _simTimer !== "undefined" && _simTimer) { clearInterval(_simTimer); _simTimer = null; }
+      showToast("Paused: Food or Security in red/yellow danger");
+      try { recordPauseReason("Red resource"); } catch(e) {}
+    }
+  }
+}
+
+function stabilizeEconomy() {
+  try { applyPreset("Crisis"); } catch(e) {}
+  try { queueMonthlyOrder("stockpile_food"); } catch(e) {}
+  state.mgmt.warFooting = false;
+  if (state.mgmt.border === "War") state.mgmt.border = "Tension";
+  simLog("Stabilize economy executed.");
+  saveState();
+  showToast("Economy stabilization package applied");
+  switchView("simulation");
+}
+
+function filterDeptHeadsOnly() {
+  const heads = Object.values((state.mgmt && state.mgmt.deptHeads) || {}).filter(Boolean);
+  const list = heads.map(id => {
+    const c = state.characters.find(x => x.id === id);
+    return c ? c.name + " — " + Object.keys(state.mgmt.deptHeads).find(k => state.mgmt.deptHeads[k] === id) : id;
+  });
+  alert("Department heads:\n" + (list.join("\n") || "None assigned"));
+}
+
+function goldenAgeVictoryTick() {
+  ensureSimIntegration();
+  if ((state.mgmt.food || 0) >= 80 && (state.mgmt.morale || 0) >= 80 && (state.mgmt.security || 0) >= 80) {
+    // count years roughly on month 12
+    if (state.sim.month === 12) state.simInt.goldenAgeYears = (state.simInt.goldenAgeYears || 0) + 1;
+  }
+  if ((state.simInt.goldenAgeYears || 0) >= 50 && !state.simInt.goldenVictory) {
+    state.simInt.goldenVictory = true;
+    alert("VICTORY: 50 Golden Age years accumulated.\nYour administration is legend.");
+    state.storyChapters.push({ title: "Victory — Golden Administration", content: "Fifty years of cumulative golden age governance." });
+  }
+}
+
+function defeatCard(cause) {
+  ensureSimIntegration();
+  let score = 0;
+  try { score = managementScore(); } catch(e) {}
+  state.simInt.lastDefeat = { cause: cause, year: state.sim.year, score: score };
+  alert("DEFEAT\nCause: " + cause + "\nYear: " + state.sim.year + "\nManagement score snapshot recorded.");
+}
+
+
+
+// ===== SIM FINISH PACK 20 =====
+function ensureSimFinish() {
+  ensureManagement();
+  ensureProgression && ensureProgression();
+  if (!state.simFinish) {
+    state.simFinish = {
+      tab: "management", // management | people | politics
+      tutorialMonth: 0,
+      tutorialDone: false,
+      policyHistory: [],
+      autosaveYear: 0,
+      lastScoreboard: null
+    };
+  }
+}
+
+function setSimTab(tab) {
+  ensureSimFinish();
+  state.simFinish.tab = tab;
+  switchView("simulation");
+}
+
+function pushPolicyHistory(snapshot) {
+  ensureSimFinish();
+  state.simFinish.policyHistory.unshift(snapshot);
+  if (state.simFinish.policyHistory.length > 10) state.simFinish.policyHistory.pop();
+}
+
+function undoLastPolicy() {
+  ensureSimFinish();
+  const prev = state.simFinish.policyHistory.shift();
+  if (!prev) return showToast("Nothing to undo");
+  state.mgmt.policies = prev.policies;
+  state.mgmt.warFooting = prev.warFooting;
+  state.mgmt.border = prev.border;
+  if (prev.budgets) {
+    Object.keys(prev.budgets).forEach(k => {
+      if (state.mgmt.departments[k]) state.mgmt.departments[k].budget = prev.budgets[k];
+    });
+  }
+  saveState();
+  showToast("Undid last policy change");
+  switchView("simulation");
+}
+
+function snapshotPolicies() {
+  ensureManagement();
+  return {
+    policies: JSON.parse(JSON.stringify(state.mgmt.policies)),
+    warFooting: state.mgmt.warFooting,
+    border: state.mgmt.border,
+    budgets: Object.fromEntries(Object.keys(state.mgmt.departments).map(k => [k, state.mgmt.departments[k].budget]))
+  };
+}
+
+function confirmDangerPolicy(label, fn) {
+  if (!confirm("Confirm: " + label + "?")) return;
+  try { pushPolicyHistory(snapshotPolicies()); } catch(e) {}
+  fn();
+}
+
+function safeDefaultsNewDynasty() {
+  ensureSimFinish();
+  ensureManagement();
+  ensureProgression && ensureProgression();
+  try { applyPreset("Peacetime"); } catch(e) {}
+  state.progression.mode = "bottom_up";
+  state.progression.autoPromote = true;
+  try { ensureSimIntegration(); state.simInt.pauseOnRed = true; } catch(e) {}
+  state.sim.pauseOnEvents = true;
+  if (!state.simFinish.tutorialDone) state.simFinish.tutorialMonth = 12;
+  simLog("Safe defaults applied: Peacetime, bottom-up, pause-on-red.");
+}
+
+function tutorialTick() {
+  ensureSimFinish();
+  if (state.simFinish.tutorialDone) return;
+  if ((state.simFinish.tutorialMonth || 0) <= 0) {
+    state.simFinish.tutorialDone = true;
+    return;
+  }
+  state.simFinish.tutorialMonth -= 1;
+  const tips = [
+    "Set policies and department budgets before long runs.",
+    "Train Focus to raise merit; promote when Ready.",
+    "Watch Food/Morale/Security lights.",
+    "Use Advisor Summary if unsure.",
+    "Open Succession Council before the Patriarch falls.",
+    "Presets: Peacetime for growth, Crisis if starving.",
+    "Trade routes need Security ≥ 30.",
+    "Queue at most 3 monthly orders.",
+    "Warehouse stores surplus food.",
+    "Pause-on-red stops you before collapse.",
+    "Cabinet Meeting gives yearly choices.",
+    "You are ready — tutorial complete."
+  ];
+  const i = 12 - state.simFinish.tutorialMonth - 1;
+  if (tips[i]) showToast("Tutorial: " + tips[i]);
+}
+
+function earlyGameIncomeFloor() {
+  const y = state.sim.year || 1;
+  if (y <= 2) {
+    const gold = (state.clanWealth && state.clanWealth.gold) || 0;
+    if (gold < 25) state.clanWealth.gold = gold + 5;
+  }
+}
+
+function softCapDeptLevels() {
+  Object.keys(state.mgmt.departments || {}).forEach(k => {
+    if (state.mgmt.departments[k].level > 10) state.mgmt.departments[k].level = 10;
+  });
+}
+
+function upgradeDepartmentCapped(dept) {
+  ensureManagement();
+  softCapDeptLevels();
+  const d = state.mgmt.departments[dept];
+  if (!d) return;
+  if (d.level >= 10) return showToast("Department max level 10");
+  const cost = 30 + d.level * 25 + Math.floor(d.level * d.level * 2);
+  if ((state.clanWealth.gold || 0) < cost) return showToast("Need " + cost + " gold");
+  state.clanWealth.gold -= cost;
+  d.level += 1;
+  simLog(dept + " → Lv." + d.level + " (-" + cost + "g)");
+  saveState();
+  showToast(dept + " Lv." + d.level);
+  switchView("simulation");
+}
+
+function fireDeptHead(dept) {
+  ensureMgmtDepth && ensureMgmtDepth();
+  if (!state.mgmt.deptHeads[dept]) return showToast("No head");
+  const id = state.mgmt.deptHeads[dept];
+  const c = state.characters.find(x => x.id === id);
+  state.mgmt.deptHeads[dept] = null;
+  if (c) addLoyalty(c, -5);
+  simLog((c ? c.name : "Head") + " removed from " + dept);
+  saveState();
+  showToast("Fired " + dept + " head");
+  switchView("simulation");
+}
+
+function autoAssignBestHeads() {
+  ensureMgmtDepth && ensureMgmtDepth();
+  const living = getLineageCharacters().slice();
+  const score = (c) => (typeof cultivationScore === "function" ? cultivationScore(c) : 0) + (typeof loyaltyOf === "function" ? loyaltyOf(c) : 50);
+  living.sort((a, b) => score(b) - score(a));
+  const depts = ["military", "alchemy", "diplomacy", "economy", "intelligence"];
+  const used = new Set();
+  depts.forEach((dept, i) => {
+    const pick = living.find(c => !used.has(c.id));
+    if (pick) {
+      state.mgmt.deptHeads[dept] = pick.id;
+      used.add(pick.id);
+    }
+  });
+  simLog("Auto-assigned department heads by cultivation + loyalty.");
+  saveState();
+  showToast("Heads auto-assigned");
+  switchView("simulation");
+}
+
+function authorizeWarAgenda() {
+  ensureCouncil && ensureCouncil();
+  if (!state.council.discussionOpen) openSuccessionCouncil();
+  state.council.warAuthorized = true;
+  simLog("Council agenda: War authorized.");
+  showToast("War authorized by council");
+  saveState();
+  switchView("simulation");
+}
+
+function regentTermTick() {
+  const reg = getLineageCharacters().find(c => c.isRegent);
+  const pat = getLineageCharacters().find(c => currentRankId(c) === "patriarch");
+  if (reg && !pat) {
+    reg.regentYears = (reg.regentYears || 0) + (state.sim.month === 1 ? 1 : 0);
+    if ((reg.regentYears || 0) >= 5 && !state.council.discussionOpen) {
+      pushAlertDeduped && pushAlertDeduped("Regent term limit — open succession");
+      if (Math.random() > 0.7) {
+        try { successionCrisisCheck(); } catch(e) {}
+      }
+    }
+  }
+}
+
+function yearAutosave() {
+  ensureSimFinish();
+  if (state.sim.month !== 1) return;
+  if (state.simFinish.autosaveYear === state.sim.year) return;
+  state.simFinish.autosaveYear = state.sim.year;
+  try {
+    const key = "heavenlyDaoAutosave";
+    localStorage.setItem(key, JSON.stringify({ t: Date.now(), year: state.sim.year, state: state }));
+  } catch(e) {}
+}
+
+function stopScoreboard() {
+  ensureSimFinish();
+  const living = getLineageCharacters().length;
+  let mgmt = 0;
+  try { mgmt = typeof managementScore === "function" ? 0 : 0; } catch(e) {}
+  // compute without alert
+  try {
+    ensureMgmtDepth && ensureMgmtDepth();
+    const m = state.mgmt;
+    mgmt = Math.round((m.food||0)+(m.morale||0)+(m.security||0)+((state.clanWealth&&state.clanWealth.gold)||0)*0.1+Object.values(m.departments).reduce((s,d)=>s+d.level*10,0));
+  } catch(e) {}
+  const board = {
+    years: state.sim.year || 1,
+    living: living,
+    peakLiving: Math.max(living, state.simFinish.peakLiving || 0),
+    mgmt: mgmt,
+    golden: (state.simInt && state.simInt.goldenAgeYears) || 0,
+    gold: (state.clanWealth && state.clanWealth.gold) || 0
+  };
+  state.simFinish.peakLiving = board.peakLiving;
+  state.simFinish.lastScoreboard = board;
+  alert("Scoreboard\nYears: " + board.years + "\nLiving: " + board.living + "\nPeak living: " + board.peakLiving + "\nMgmt score: " + board.mgmt + "\nGolden years: " + board.golden + "\nGold: " + board.gold);
+}
+
+function bugcheckSanity() {
+  const issues = [];
+  if (!state.lineage || !state.lineage.founderId) issues.push("No founder set");
+  if (state.clanWealth && (isNaN(state.clanWealth.gold) || state.clanWealth.gold < 0)) {
+    issues.push("Bad gold — repaired");
+    state.clanWealth.gold = Math.max(0, Number(state.clanWealth.gold) || 0);
+  }
+  if (state.mgmt) {
+    ["food","morale","security"].forEach(k => {
+      if (isNaN(state.mgmt[k])) { state.mgmt[k] = 50; issues.push("Repaired " + k); }
+    });
+    Object.keys(state.mgmt.deptHeads || {}).forEach(dept => {
+      const id = state.mgmt.deptHeads[dept];
+      if (id && !state.characters.find(c => c.id === id && c.alive !== false)) {
+        state.mgmt.deptHeads[dept] = null;
+        issues.push("Cleared orphan head: " + dept);
+      }
+    });
+  }
+  getLineageCharacters().forEach(c => {
+    if (!state.hierarchy.roles[c.id]) state.hierarchy.roles[c.id] = "outer";
+  });
+  saveState();
+  alert(issues.length ? ("Bugcheck:\n- " + issues.join("\n- ")) : "Bugcheck OK — no issues found");
+}
+
+function loadScenario(name) {
+  ensureSimFinish();
+  if (!state.world) try { createWorld(); } catch(e) {}
+  if (name === "dying") {
+    // leave only few living
+    const living = getLineageCharacters();
+    living.slice(3).forEach(c => { try { killCharacter(c, "scenario cull"); } catch(e) { c.alive = false; } });
+    if (!living.length) {
+      createCharacter("Dou Zhe");
+      state.currentCharacterId = state.characters[0].id;
+      markFounder();
+    }
+    state.clanWealth.gold = 15;
+    state.mgmt.food = 20;
+    state.mgmt.morale = 25;
+    showToast("Scenario: Dying clan");
+  } else if (name === "merchant") {
+    state.clanWealth.gold = 300;
+    state.clanWealth.renown = 8;
+    try { unlockTradeRoute("silk"); unlockTradeRoute("herb"); } catch(e) {}
+    applyPreset("Peacetime");
+    showToast("Scenario: Rich merchant clan");
+  } else if (name === "frontier") {
+    state.globalThreat = 7;
+    state.mgmt.border = "Tension";
+    state.mgmt.security = 35;
+    applyPreset("War Economy");
+    showToast("Scenario: War frontier");
+  }
+  saveState();
+  switchView("simulation");
+}
+
+function renderSimTabs() {
+  ensureSimFinish();
+  const t = state.simFinish.tab || "management";
+  const btn = (id, label) => `<button class="${t===id?'btn-primary':'btn-ghost'}" onclick="setSimTab('${id}')">${label}</button>`;
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    ${btn("management","Management")}
+    ${btn("people","People")}
+    ${btn("politics","Politics")}
+  </div>`;
+}
+
+
 // ========== NAVIGATION ==========
+
 
 const views = {
   dashboard: { title: 'Dashboard', render: renderDashboard },
@@ -8268,6 +10385,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { if (typeof ensure100 === 'function') ensure100(); } catch(e) {}
   try { if (typeof ensure100b === 'function') ensure100b(); } catch(e) {}
   try { if (typeof ensurePath === 'function') ensurePath(); } catch(e) {}
+  try { if (typeof ensureManagement === 'function') ensureManagement(); } catch(e) {}
   try { if (typeof initSimWorker === 'function') initSimWorker(); } catch(e) {}
 
   // Always reveal app — never stick on loader
