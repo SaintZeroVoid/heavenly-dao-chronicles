@@ -743,3 +743,9 @@ body {
   pointer-events: none !important;
   z-index: -1 !important;
 }
+
+
+/* Full Dynasty SIM polish */
+.stat-box .value { font-variant-numeric: tabular-nums; }
+#view-simulation .card { transition: border-color 0.2s ease; }
+#view-simulation .btn-primary { box-shadow: 0 0 12px rgba(200,160,40,0.15); }
