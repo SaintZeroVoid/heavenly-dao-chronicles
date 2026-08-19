@@ -3900,6 +3900,7 @@ function simTick(force) {
   try { enforceLivingCap(); } catch(e) {}
   try { softLandingNearExtinction(); capWarnings(); } catch(e) {}
   // --- CONNECTED SIM PIPELINE ---
+  try { snapMonthStart(); } catch(e) {}
   try { if (state.sim && state.sim.month) progressionTick(); } catch(e) {}
   try { managementMonthTick(); } catch(e) {}
   try { managementUpgradeTick(); } catch(e) {}
@@ -3918,6 +3919,7 @@ function simTick(force) {
   try { worldSimMonthTick(); } catch(e) {}
   try { worldDepthMonthTick(); } catch(e) {}
   try { sanitizeResources(); } catch(e) {}
+  try { computeMonthDeltas(); } catch(e) {}
   try { refreshPatriarchAP(); } catch(e) {}
   try { fullSimSeasonEvent(); fullSimPhaseUpdate(); } catch(e) {}
   try { nearExtinctionWarn(); } catch(e) {}
@@ -8752,9 +8754,16 @@ function marriageAllianceRival() {
 function renderCleanSimUI() {
   ensureSimFinal();
   ensureProgression && ensureProgression();
+  ensureSimUI && ensureSimUI();
   const season = typeof seasonLabel === "function" ? seasonLabel() : "";
   const mode = (state.progression && state.progression.mode) || "bottom_up";
+  const _panel = (state.simUI && state.simUI.focusPanel) || "management";
+  const _focus = state.simUI && state.simUI.focusMode;
   return `
+    ${typeof renderStickySimBar==='function'?renderStickySimBar():''}
+    ${typeof renderSimSubnav==='function'?renderSimSubnav():''}
+    ${typeof renderDeltaChips==='function'?renderDeltaChips():''}
+    ${typeof renderMemberDrawer==='function'?renderMemberDrawer():''}
     ${typeof renderFullSimHUD==='function'?renderFullSimHUD():''}
     <div class="card" style="margin-bottom:12px;padding:12px;">
       <div style="color:var(--gold);font-weight:600;margin-bottom:8px;">Quick Controls</div>
@@ -8795,7 +8804,7 @@ function renderCleanSimUI() {
     ${typeof renderSimPulse==='function'?renderSimPulse():''}
     ${typeof renderSimTabs==='function'?renderSimTabs():''}
     ${typeof renderAlertsStrip==='function'?renderAlertsStrip():''}
-    <div style="display:${(state.simFinish&&state.simFinish.tab==='politics')?'none':'block'}">${typeof renderManagementDashboard==='function'?renderManagementDashboard():''}</div>
+    <div style="display:${(_focus && _panel!=='management')?'none':((state.simFinish&&state.simFinish.tab==='politics')?'none':'block')}">${typeof renderManagementDashboard==='function'?renderManagementDashboard():''}</div>
     ${typeof clanStatusCard==='function'?clanStatusCard():''}
     <p style="color:var(--text-dim);font-size:0.85rem;margin:6px 0;">Season: <strong style="color:var(--gold);">${season}</strong> · Progression: <strong style="color:var(--gold);">${mode}</strong> · Pause filter: ${(state.simFinal&&state.simFinal.pauseFilter)||'important'}</p>
     ${typeof renderDirtyBadge==='function'?renderDirtyBadge():''}
@@ -8819,7 +8828,8 @@ function renderCleanSimUI() {
       <button class="btn-ghost" onclick="setPauseFilter('all')">Pause: All</button>
       <button class="btn-ghost" onclick="toggleAdvancedTools()">More tools: ${(state.simQoL&&state.simQoL.advanced)?"ON":"OFF"}</button>
     </div>
-    ${typeof renderRankSummary==='function'?renderRankSummary():''}
+    ${(!_focus || _panel==="people") ? (typeof renderRankSummary==="function"?renderRankSummary():"") : ""}
+    ${(!_focus || _panel==="people") ? (typeof renderVirtualMemberList==="function"?renderVirtualMemberList():"") : ""}
     <div style="margin-bottom:8px;"><input id="memberSearchBox" placeholder="Search members..." value="${(state.simConnect&&state.simConnect.memberSearch)||''}"
       onchange="setMemberSearch(this.value)" onkeydown="if(event.key==='Enter')setMemberSearch(this.value)"
       style="background:var(--bg-card);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:8px;width:min(280px,100%);" /></div>
@@ -8827,19 +8837,21 @@ function renderCleanSimUI() {
     ${typeof renderWhyPaused==='function'?renderWhyPaused():''}
     ${typeof renderCriticalBanner==='function'?renderCriticalBanner():''}
     ${typeof renderFoodCrisisUI==='function'?renderFoodCrisisUI():''}
-    ${typeof renderWorldHudStrip==='function'?renderWorldHudStrip():''}
-    ${typeof renderWorldSimPanel==='function'?renderWorldSimPanel():''}
+    ${(!_focus || _panel==="world" || _panel==="management") ? (typeof renderWorldHudStrip==="function"?renderWorldHudStrip():"") : ""}
+    ${(!_focus || _panel==="world") ? (typeof renderWorldSimPanel==="function"?renderWorldSimPanel():"") : ""}
     ${typeof renderRegentScorecard==='function'?renderRegentScorecard():''}
-    ${typeof renderGrandElderHall==='function'?renderGrandElderHall():''}
-    ${typeof renderRegentPanel==='function'?renderRegentPanel():''}
+    ${(!_focus || _panel==="politics") ? (typeof renderGrandElderHall==="function"?renderGrandElderHall():"") : ""}
+    ${(!_focus || _panel==="politics") ? (typeof renderRegentPanel==="function"?renderRegentPanel():"") : ""}
+    ${(!_focus || _panel==="politics") ? (typeof renderRegentScorecard==="function"?renderRegentScorecard():"") : ""}
     ${typeof renderWhyPaused==='function'?renderWhyPaused():''}
     ${typeof renderCriticalBanner==='function'?renderCriticalBanner():''}
     ${typeof renderFoodCrisisUI==='function'?renderFoodCrisisUI():''}
-    ${typeof renderWorldHudStrip==='function'?renderWorldHudStrip():''}
-    ${typeof renderWorldSimPanel==='function'?renderWorldSimPanel():''}
+    ${(!_focus || _panel==="world" || _panel==="management") ? (typeof renderWorldHudStrip==="function"?renderWorldHudStrip():"") : ""}
+    ${(!_focus || _panel==="world") ? (typeof renderWorldSimPanel==="function"?renderWorldSimPanel():"") : ""}
     ${typeof renderRegentScorecard==='function'?renderRegentScorecard():''}
-    ${typeof renderGrandElderHall==='function'?renderGrandElderHall():''}
-    ${typeof renderRegentPanel==='function'?renderRegentPanel():''}
+    ${(!_focus || _panel==="politics") ? (typeof renderGrandElderHall==="function"?renderGrandElderHall():"") : ""}
+    ${(!_focus || _panel==="politics") ? (typeof renderRegentPanel==="function"?renderRegentPanel():"") : ""}
+    ${(!_focus || _panel==="politics") ? (typeof renderRegentScorecard==="function"?renderRegentScorecard():"") : ""}
     ${!(state.mgmt&&state.mgmt.mgmtOnly) && (!state.simFinish||state.simFinish.tab==='politics'||state.simFinish.tab==='management') && typeof renderSuccessionCouncil==='function'?renderSuccessionCouncil():''}
     ${typeof renderSeatMap==='function'?renderSeatMap():''}
   `;
@@ -13173,7 +13185,293 @@ function sanitizeResources() {
   if (state.clanWealth) state.clanWealth.gold = Math.round(Math.max(0, state.clanWealth.gold || 0));
 }
 
+
+// ===== SIM UI IMPROVEMENTS (15) =====
+function ensureSimUI() {
+  if (!state.simUI) {
+    state.simUI = {
+      density: "comfortable", // comfortable | compact
+      focusMode: false,
+      focusPanel: "management", // management | people | world | politics
+      collapsed: {},
+      memberDrawerId: null,
+      sortBy: "merit", // merit | rank | age | loyalty
+      toastQueue: [],
+      lastDeltas: null,
+      monthSnap: null
+    };
+  }
+  return state.simUI;
+}
+
+function toggleDensity() {
+  ensureSimUI();
+  state.simUI.density = state.simUI.density === "compact" ? "comfortable" : "compact";
+  saveState();
+  showToast("Density: " + state.simUI.density);
+  switchView("simulation");
+}
+
+function toggleFocusMode() {
+  ensureSimUI();
+  state.simUI.focusMode = !state.simUI.focusMode;
+  saveState();
+  showToast(state.simUI.focusMode ? "Focus mode ON" : "Focus mode OFF");
+  switchView("simulation");
+}
+
+function setFocusPanel(p) {
+  ensureSimUI();
+  state.simUI.focusPanel = p;
+  if (state.simFinish) state.simFinish.tab = p === "world" ? "management" : p;
+  saveState();
+  switchView("simulation");
+}
+
+function toggleCardCollapse(id) {
+  ensureSimUI();
+  state.simUI.collapsed[id] = !state.simUI.collapsed[id];
+  switchView("simulation");
+}
+
+function isCardCollapsed(id) {
+  ensureSimUI();
+  return !!state.simUI.collapsed[id];
+}
+
+function collapsibleCard(id, title, bodyHtml, forceOpen) {
+  ensureSimUI();
+  const closed = forceOpen ? false : isCardCollapsed(id);
+  return `<div class="card sim-card" data-card="${id}" style="margin-bottom:12px;padding:${state.simUI.density==='compact'?'8px':'12px'};">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleCardCollapse('${id}')">
+      <div style="color:var(--gold);font-weight:600;">${title}</div>
+      <span style="color:var(--text-dim);font-size:0.85rem;">${closed ? "▸ expand" : "▾ collapse"}</span>
+    </div>
+    <div style="display:${closed ? "none" : "block"};margin-top:8px;">${bodyHtml}</div>
+  </div>`;
+}
+
+function queueToast(msg) {
+  ensureSimUI();
+  state.simUI.toastQueue = state.simUI.toastQueue || [];
+  state.simUI.toastQueue.push(String(msg));
+  if (state.simUI.toastQueue.length > 8) state.simUI.toastQueue.shift();
+  // batch flush
+  if (!state.simUI._toastTimer) {
+    state.simUI._toastTimer = setTimeout(() => {
+      try {
+        const q = state.simUI.toastQueue || [];
+        state.simUI.toastQueue = [];
+        state.simUI._toastTimer = null;
+        if (q.length === 1) showToast(q[0]);
+        else if (q.length > 1) showToast(q[0] + " (+" + (q.length - 1) + " more)");
+      } catch(e) {}
+    }, 120);
+  }
+}
+
+function snapMonthStart() {
+  ensureSimUI();
+  if (!state.mgmt) return;
+  state.simUI.monthSnap = {
+    food: state.mgmt.food || 0,
+    gold: (state.clanWealth && state.clanWealth.gold) || 0,
+    morale: state.mgmt.morale || 0,
+    security: state.mgmt.security || 0,
+    living: typeof getLineageCharacters === "function" ? getLineageCharacters().length : 0
+  };
+}
+
+function computeMonthDeltas() {
+  ensureSimUI();
+  const s = state.simUI.monthSnap;
+  if (!s || !state.mgmt) return;
+  const d = {
+    food: Math.round((state.mgmt.food || 0) - s.food),
+    gold: Math.round(((state.clanWealth && state.clanWealth.gold) || 0) - s.gold),
+    morale: Math.round((state.mgmt.morale || 0) - s.morale),
+    security: Math.round((state.mgmt.security || 0) - s.security),
+    living: (typeof getLineageCharacters === "function" ? getLineageCharacters().length : 0) - s.living
+  };
+  state.simUI.lastDeltas = d;
+}
+
+function renderDeltaChips() {
+  ensureSimUI();
+  const d = state.simUI.lastDeltas;
+  if (!d) return "";
+  const chip = (label, v) => {
+    const col = v > 0 ? "#6bcf8e" : (v < 0 ? "#f88" : "var(--text-dim)");
+    const sign = v > 0 ? "+" : "";
+    return `<span style="padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:${col};font-size:0.78rem;">${label} ${sign}${v}</span>`;
+  };
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px;">
+    <span style="color:var(--text-dim);font-size:0.78rem;align-self:center;">Last month:</span>
+    ${chip("Food", d.food)}${chip("Gold", d.gold)}${chip("Morale", d.morale)}${chip("Sec", d.security)}${chip("Living", d.living)}
+  </div>`;
+}
+
+function renderStickySimBar() {
+  ensureSim();
+  ensureManagement();
+  ensureSimUI();
+  const y = state.sim.year || 1, m = state.sim.month || 1;
+  const gold = Math.round((state.clanWealth && state.clanWealth.gold) || 0);
+  const food = Math.round((state.mgmt && state.mgmt.food) || 0);
+  const living = typeof getLineageCharacters === "function" ? getLineageCharacters().length : 0;
+  const running = state.sim.running;
+  return `<div id="sim-sticky-bar" style="position:sticky;top:0;z-index:40;margin-bottom:12px;padding:10px 12px;background:rgba(12,12,18,0.92);backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;">
+    <div style="display:flex;flex-wrap:wrap;gap:12px;font-size:0.9rem;">
+      <span>Y<strong style="color:var(--gold);">${y}</strong> M<strong style="color:var(--gold);">${m}</strong></span>
+      <span title="Gold">🪙 ${gold}</span>
+      <span title="Food">🌾 ${food}</span>
+      <span title="Living">👥 ${living}</span>
+      <span style="color:${running ? "#6bcf8e" : "var(--text-dim)"};">${running ? "● RUN" : "○ STOP"}</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">
+      <button class="btn-primary" style="min-height:40px;padding:8px 12px;" onclick="startSimulation()">Run</button>
+      <button class="btn-ghost" style="min-height:40px;padding:8px 12px;" onclick="try{stopSimulation()}catch(e){}">Stop</button>
+      <button class="btn-ghost" style="min-height:40px;padding:8px 12px;" onclick="runFullSimMonth()">Month</button>
+      <button class="btn-ghost" style="min-height:40px;padding:8px 12px;" onclick="runFullSimYear()">Year</button>
+    </div>
+  </div>`;
+}
+
+function renderSimSubnav() {
+  ensureSimUI();
+  const cur = state.simUI.focusPanel || "management";
+  const tabs = [
+    { id: "management", label: "⚙ Management" },
+    { id: "people", label: "👥 People" },
+    { id: "world", label: "🗺 World" },
+    { id: "politics", label: "🏛 Politics" }
+  ];
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+    ${tabs.map(t => `<button class="${cur===t.id?"btn-primary":"btn-ghost"}" style="min-height:40px;" onclick="setFocusPanel('${t.id}')">${t.label}</button>`).join("")}
+    <button class="btn-ghost" style="min-height:40px;" onclick="toggleFocusMode()">Focus: ${state.simUI.focusMode?"ON":"OFF"}</button>
+    <button class="btn-ghost" style="min-height:40px;" onclick="toggleDensity()">${state.simUI.density==="compact"?"Compact":"Comfortable"}</button>
+  </div>
+  <div style="font-size:0.78rem;color:var(--text-dim);margin-bottom:8px;">Sim › ${cur.charAt(0).toUpperCase()+cur.slice(1)}</div>`;
+}
+
+function setMemberSort(s) {
+  ensureSimUI();
+  state.simUI.sortBy = s;
+  switchView("simulation");
+}
+
+function sortMembersList(list) {
+  ensureSimUI();
+  const s = state.simUI.sortBy || "merit";
+  const arr = list.slice();
+  if (s === "merit") arr.sort((a,b) => (getMerit(b)||0) - (getMerit(a)||0));
+  else if (s === "age") arr.sort((a,b) => (b.age||0) - (a.age||0));
+  else if (s === "loyalty") arr.sort((a,b) => ((typeof loyaltyOf==="function"?loyaltyOf(b):50) - (typeof loyaltyOf==="function"?loyaltyOf(a):50)));
+  else if (s === "rank") {
+    const order = { ancestor:6, patriarch:5, grand_elder:4, elder:3, core:2, inner:1, outer:0 };
+    arr.sort((a,b) => (order[currentRankId(b)]||0) - (order[currentRankId(a)]||0));
+  }
+  return arr;
+}
+
+function openMemberDrawer(id) {
+  ensureSimUI();
+  state.simUI.memberDrawerId = id;
+  switchView("simulation");
+}
+
+function closeMemberDrawer() {
+  ensureSimUI();
+  state.simUI.memberDrawerId = null;
+  switchView("simulation");
+}
+
+function renderMemberDrawer() {
+  ensureSimUI();
+  const id = state.simUI.memberDrawerId;
+  if (!id) return "";
+  const c = (state.characters || []).find(x => x.id === id);
+  if (!c) return "";
+  const rank = typeof currentRankId === "function" ? currentRankId(c) : "?";
+  return `<div style="position:fixed;top:0;right:0;width:min(360px,100%);height:100%;z-index:50;background:rgba(14,14,22,0.98);border-left:1px solid var(--border);padding:16px;overflow:auto;box-shadow:-8px 0 24px rgba(0,0,0,0.4);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <strong style="color:var(--gold);font-size:1.1rem;">${c.name}</strong>
+      <button class="btn-ghost" onclick="closeMemberDrawer()">Close</button>
+    </div>
+    <p style="color:var(--text-muted);font-size:0.9rem;">${c.star||""} ${c.realm||""} · Age ${c.age||"?"} · ${rank}</p>
+    <p style="color:var(--text-dim);font-size:0.85rem;">Merit ${typeof getMerit==="function"?getMerit(c):0} · Loyalty ${typeof loyaltyOf==="function"?Math.round(loyaltyOf(c)):50}</p>
+    <p style="color:var(--text-dim);font-size:0.85rem;">Dou Qi ${c.douQi||0} · Foundation ${Math.round(c.foundation||0)}</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+      <button class="btn-ghost" onclick="state.currentCharacterId='${c.id}';showToast('Selected');">Select</button>
+      <button class="btn-ghost" onclick="try{setFocusCharacter()}catch(e){};state.dynasty=state.dynasty||{};state.dynasty.focusId='${c.id}';saveState();showToast('Focus set');">Set Focus</button>
+      <button class="btn-ghost" onclick="assignHierarchyRankSafe('elder')">Make Elder</button>
+      <button class="btn-ghost" onclick="assignHierarchyRankSafe('grand_elder')">Make GE</button>
+    </div>
+  </div>`;
+}
+
+function renderVirtualMemberList() {
+  ensureSimUI();
+  let list = typeof getLineageCharacters === "function" ? getLineageCharacters() : [];
+  try { list = filterMembersBySearch(list); } catch(e) {}
+  list = sortMembersList(list);
+  const pageSize = 20;
+  if (!state.simQoL) state.simQoL = { memberPage: 0 };
+  if (state.simQoL.memberPage == null) state.simQoL.memberPage = 0;
+  const pages = Math.max(1, Math.ceil(list.length / pageSize));
+  if (state.simQoL.memberPage >= pages) state.simQoL.memberPage = pages - 1;
+  const start = state.simQoL.memberPage * pageSize;
+  const slice = list.slice(start, start + pageSize);
+  const rankLabel = (c) => {
+    try { return (HIERARCHY_RANKS.find(r => r.id === currentRankId(c)) || {}).label || currentRankId(c); } catch(e) { return currentRankId(c); }
+  };
+  return `<div class="card" style="padding:${state.simUI.density==='compact'?'8px':'12px'};margin-bottom:12px;">
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center;">
+      <strong style="color:var(--gold);">Members</strong>
+      <button class="btn-ghost" style="min-height:36px;" onclick="setMemberSort('merit')">Merit</button>
+      <button class="btn-ghost" style="min-height:36px;" onclick="setMemberSort('rank')">Rank</button>
+      <button class="btn-ghost" style="min-height:36px;" onclick="setMemberSort('age')">Age</button>
+      <button class="btn-ghost" style="min-height:36px;" onclick="setMemberSort('loyalty')">Loyalty</button>
+      <span style="color:var(--text-dim);font-size:0.78rem;">Page ${state.simQoL.memberPage+1}/${pages} · ${list.length}</span>
+      <button class="btn-ghost" onclick="ensureSimQoL();state.simQoL.memberPage=Math.max(0,state.simQoL.memberPage-1);switchView('simulation')">←</button>
+      <button class="btn-ghost" onclick="ensureSimQoL();state.simQoL.memberPage++;switchView('simulation')">→</button>
+    </div>
+    <div>
+      ${slice.map(c => `<div onclick="openMemberDrawer('${c.id}')" style="padding:8px 6px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;justify-content:space-between;gap:8px;min-height:40px;align-items:center;">
+        <span><strong style="color:var(--gold);">${c.name}</strong> <span style="color:var(--text-dim);font-size:0.8rem;">${c.star||""} ${c.realm||""}</span></span>
+        <span style="color:var(--text-muted);font-size:0.8rem;">${rankLabel(c)} · M${typeof getMerit==="function"?getMerit(c):0}</span>
+      </div>`).join("") || "<p style='color:var(--text-dim);'>No members</p>"}
+    </div>
+  </div>`;
+}
+
+function renderSimLayoutShell(mainHtml) {
+  ensureSimUI();
+  const compact = state.simUI.density === "compact";
+  const focus = state.simUI.focusMode;
+  const panel = state.simUI.focusPanel || "management";
+  // 3-column when not focus and wide-friendly
+  return `<div class="sim-ui-root" style="max-width:1400px;margin:0 auto;${compact?"font-size:0.92rem;":""}">
+    ${renderStickySimBar()}
+    ${renderSimSubnav()}
+    ${renderDeltaChips()}
+    ${renderMemberDrawer()}
+    ${focus ? `<div>${mainHtml}</div>` : `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start;">
+      <div>${mainHtml}</div>
+    </div>`}
+  </div>`;
+}
+
+function captureDeltasAroundTick() {
+  try { snapMonthStart(); } catch(e) {}
+}
+function finishDeltasAroundTick() {
+  try { computeMonthDeltas(); } catch(e) {}
+}
+
 // ========== NAVIGATION ==========
+
 
 
 
